@@ -20,15 +20,12 @@ It does not replace the project guidance or approval gates.
 - Read only the relevant project and module, then follow actual constructor,
   interface, persistence, and test dependencies.
 - Expand to another module only when a concrete dependency or failure requires it.
-- Do not inspect `HrIntranet/` or `HrIntranet.slnx` unless the task explicitly
-  places HrIntranet in scope. Use `rg --no-ignore <pattern> HrIntranet` when an
-  authorized HrIntranet task must override `.rgignore`.
+- Keep unrelated repositories and projects outside the task scope.
 
 ## Context exclusions
 
-- Do not bulk-read `.ai/reports` during ordinary product or tooling work.
-- Read historical reports only for AIOS/report tasks, historical investigation,
-  or regression root-cause analysis.
+- Read historical reports only when relevant to the requested investigation
+  or regression root-cause analysis; avoid bulk-loading unrelated reports.
 - Do not batch-read migration Designer files or the complete model snapshot.
 - For migration/schema work, read the migration `.cs` first. Read its Designer
   or `HRSystemDbContextModelSnapshot.cs` only when model metadata is required.

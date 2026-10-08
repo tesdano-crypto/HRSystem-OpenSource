@@ -2,9 +2,10 @@
 
 ## Release status and reporting
 
-There is no supported public release or configured private reporting endpoint yet.
-Before publication, the maintainer must establish a private security contact or
-repository private vulnerability reporting channel and document it here.
+**TODO / public-release blocker:** GitHub Private Vulnerability Reporting has not
+been confirmed enabled for this repository. Before a public release, the maintainer
+must verify a working private reporting channel and document its instructions here.
+No private reporting endpoint or security contact is currently documented.
 Do not post vulnerabilities containing secrets or employee data in public issues.
 Use only fictional records and a sanitized reproduction when reporting problems.
 No response-time or support commitment is implied by this preparation snapshot.

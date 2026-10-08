@@ -1,6 +1,6 @@
 # AI Working Guide for HRSystem
 
-Use this guide to keep AI-assisted work scoped, reproducible, and economical. It complements the repository AIOS rules; it does not override safety or approval gates.
+Use this guide to keep AI-assisted work scoped, reproducible, and economical. It complements the repository development rules; it does not override safety or approval gates.
 
 ## Start small
 
@@ -40,7 +40,7 @@ Replace the filter with `HRSystem.Leave.slnf`, `HRSystem.BioWebTaImport.slnf`, o
 ## Scope and evidence rules
 
 - Prefer `rg` and direct file reads over broad repository dumps.
-- Do not bulk-scan `.ai/reports`; read reports only for AIOS/report tasks, historical investigation, or regression root-cause analysis.
+- Read historical reports only when relevant to the requested investigation or regression root-cause analysis; avoid bulk-loading unrelated reports.
 - For authorized migration work, read the migration `.cs` first. Read its generated Designer or the model snapshot only when model metadata is required.
 - Preserve existing uncommitted work. Never use reset, clean, restore, or broad stash without explicit authorization.
 - Do not print secrets, connection strings, credentials, employee identifiers, or attendance times in reports.

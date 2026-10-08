@@ -48,6 +48,6 @@ Solution filters reduce solution loading and command intent. They do not turn sh
 
 ## Protected boundaries
 
-- `HrIntranet.slnx`, the `HrIntranet` folder, and `MigrantCaseFlow` are outside HRSystem scope.
+- Unrelated repositories and projects are outside the task scope unless explicitly authorized.
 - Database, migration, publish, deployment, runtime, scheduler, external BioWebTA, and `<RUNTIME_DATA_DIRECTORY>` actions require separate explicit authorization.
 - `AttendanceRawEvents` are append-only. Test or tooling work must not synthesize or mutate formal attendance data.

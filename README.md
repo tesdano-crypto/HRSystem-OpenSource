@@ -142,4 +142,3 @@ This project's original code is licensed under the **Apache License, Version 2.0
 See [LICENSE](LICENSE) for the full terms and [NOTICE](NOTICE) for attribution.
 Third-party dependencies and attributed calendar data retain their own terms;
 the project license does not relicense them.
-See the [pre-publish review](docs/pre-publish-review.md) for current release gates.
