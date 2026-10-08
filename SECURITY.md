@@ -2,12 +2,14 @@
 
 ## Release status and reporting
 
-**TODO / public-release blocker:** GitHub Private Vulnerability Reporting has not
-been confirmed enabled for this repository. Before a public release, the maintainer
-must verify a working private reporting channel and document its instructions here.
-No private reporting endpoint or security contact is currently documented.
-Do not post vulnerabilities containing secrets or employee data in public issues.
-Use only fictional records and a sanitized reproduction when reporting problems.
+GitHub Private Vulnerability Reporting is enabled for this repository.
+Report security vulnerabilities privately through GitHub **Security Advisories**
+using **Report a vulnerability**:
+[Submit a private vulnerability report](https://github.com/tesdano-crypto/HRSystem-OpenSource/security/advisories/new).
+
+Do not use public issues to report sensitive security vulnerabilities.
+Do not include real employee data, credentials or production secrets in reports
+or attachments. Use fictional test data and a sanitized reproduction instead.
 No response-time or support commitment is implied by this preparation snapshot.
 
 ## Deployment security
