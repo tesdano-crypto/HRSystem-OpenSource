@@ -1,0 +1,85 @@
+@page "/my-comp-time"
+@attribute [Authorize(Policy = PolicyNames.LeaveRequestSelfService)]
+@using HRSystem.Application.CompTime
+@using HRSystem.Domain.CompTime
+@inject ICompTimeService CompTimeService
+
+<PageTitle>我的補休</PageTitle>
+<PageHeader Title="我的補休" Description="補休餘額以不可覆寫的取得、使用與返還帳本為準。" />
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Warning">@_error</FluentMessageBar>
+}
+else if (_balance is null)
+{
+    <LoadingState />
+}
+else
+{
+    <section class="summary-grid">
+        <article class="summary-card"><span>補休取得</span><strong>@Hours(_balance.GrantedHours)</strong></article>
+        <article class="summary-card"><span>補休使用</span><strong>@Hours(_balance.ConsumedHours)</strong></article>
+        <article class="summary-card"><span>補休返還</span><strong>@Hours(_balance.RestoredHours)</strong></article>
+        <article class="summary-card"><span>可用補休時數</span><strong>@Hours(_balance.AvailableHours)</strong></article>
+    </section>
+
+    <h2>補休帳本</h2>
+    @if (_balance.Transactions.Count == 0)
+    {
+        <EmptyState Title="目前沒有補休紀錄" Description="補休取得、使用或返還後會顯示於此。" />
+    }
+    else
+    {
+        <div class="grid-shell">
+            <table class="data-table">
+                <thead><tr><th>有效日期</th><th>類型</th><th>時數</th><th>來源</th><th>原因</th></tr></thead>
+                <tbody>
+                @foreach (var item in _balance.Transactions)
+                {
+                    <tr>
+                        <td>@item.EffectiveDate</td>
+                        <td>@TransactionText(item.TransactionType)</td>
+                        <td>@SignedHours(item.SignedHours)</td>
+                        <td>@SourceText(item.SourceType)</td>
+                        <td>@item.Reason</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private CompTimeBalanceDto? _balance;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _balance = await CompTimeService.GetMyBalanceAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private static string Hours(decimal value) => $"{value:0.##} 小時";
+    private static string SignedHours(decimal value) => $"{(value >= 0 ? "+" : string.Empty)}{value:0.##} 小時";
+    private static string TransactionText(CompTimeTransactionType type) => type switch
+    {
+        CompTimeTransactionType.Grant => "補休取得",
+        CompTimeTransactionType.Consume => "補休使用",
+        CompTimeTransactionType.Restore => "補休返還",
+        _ => "未知"
+    };
+    private static string SourceText(CompTimeSourceType type) => type switch
+    {
+        CompTimeSourceType.LegacyOpeningBalance => "補休歷史期初餘額",
+        CompTimeSourceType.LeaveRequest => "請假申請",
+        _ => "未知"
+    };
+}

@@ -1,0 +1,169 @@
+{
+  "schemaVersion": "1.0",
+  "calendarYear": 2026,
+  "source": {
+    "authority": "行政院人事行政總處",
+    "title": "中華民國一百一十五年政府行政機關辦公日曆表",
+    "publicationDate": "2025-06-13",
+    "url": "https://www.dgpa.gov.tw/information?pid=12573&uid=41",
+    "documentIdentifier": "行政院院授人培字第11430248312號函",
+    "contentSha256": "30f3314c8a217a741733a6a48cfeab9a0f8915f9fa0f90169fcbebf42f15c6d8"
+  },
+  "manifestVersion": "2026.1",
+  "dates": [
+    {
+      "date": "2026-01-01",
+      "dayType": "NationalHoliday",
+      "name": "中華民國開國紀念日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-02-15",
+      "dayType": "NationalHoliday",
+      "name": "除夕及春節連續假期（除夕前一日）",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-02-16",
+      "dayType": "NationalHoliday",
+      "name": "除夕",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-02-17",
+      "dayType": "NationalHoliday",
+      "name": "春節（農曆正月初一）",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-02-18",
+      "dayType": "NationalHoliday",
+      "name": "春節（農曆正月初二）",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-02-19",
+      "dayType": "NationalHoliday",
+      "name": "春節（農曆正月初三）",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-02-20",
+      "dayType": "SubstituteHoliday",
+      "name": "春節補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-02-27",
+      "dayType": "SubstituteHoliday",
+      "name": "和平紀念日補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-02-28",
+      "dayType": "NationalHoliday",
+      "name": "和平紀念日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-04-03",
+      "dayType": "SubstituteHoliday",
+      "name": "兒童節補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-04-04",
+      "dayType": "NationalHoliday",
+      "name": "兒童節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-04-05",
+      "dayType": "NationalHoliday",
+      "name": "清明節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-04-06",
+      "dayType": "SubstituteHoliday",
+      "name": "清明節補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-05-01",
+      "dayType": "NationalHoliday",
+      "name": "勞動節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-06-19",
+      "dayType": "NationalHoliday",
+      "name": "端午節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-09-25",
+      "dayType": "NationalHoliday",
+      "name": "中秋節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-09-28",
+      "dayType": "NationalHoliday",
+      "name": "教師節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-10-09",
+      "dayType": "SubstituteHoliday",
+      "name": "國慶日補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-10-10",
+      "dayType": "NationalHoliday",
+      "name": "國慶日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-10-25",
+      "dayType": "NationalHoliday",
+      "name": "臺灣光復暨金門古寧頭大捷紀念日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-10-26",
+      "dayType": "SubstituteHoliday",
+      "name": "臺灣光復暨金門古寧頭大捷紀念日補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2026-12-25",
+      "dayType": "NationalHoliday",
+      "name": "行憲紀念日",
+      "sourceNote": null,
+      "sourceReference": null
+    }
+  ]
+}

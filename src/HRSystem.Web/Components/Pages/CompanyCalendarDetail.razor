@@ -1,0 +1,76 @@
+@page "/company-calendar/{Year:int}"
+@attribute [Authorize(Policy = PolicyNames.CompanyCalendarRead)]
+@using HRSystem.Application.CompanyCalendars
+@using HRSystem.Domain.CompanyCalendars
+@inject ICompanyCalendarQueryService CalendarQuery
+
+<PageTitle>@Year 年公司行事曆</PageTitle>
+<PageHeader Title="@($"{Year} 年公司行事曆")" Description="日期採台灣民用日期，不進行 UTC 日期轉換。">
+    <Actions><a href="/company-calendar">返回年度列表</a></Actions>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else if (_calendar is not null)
+{
+    @if (_calendar.Year.Status == CompanyCalendarStatus.Archived)
+    {
+        <FluentMessageBar Intent="@MessageIntent.Warning">這是封存的歷史行事曆，不作為目前業務查詢依據。</FluentMessageBar>
+    }
+    <section class="summary-card">
+        <h2>@_calendar.Year.SourceTitle</h2>
+        <p>版本：@_calendar.Year.ManifestVersion　來源機關：@_calendar.Year.SourceAuthority</p>
+        <p><a href="@_calendar.Year.SourceReference" target="_blank" rel="noopener noreferrer">查看官方來源</a></p>
+    </section>
+    @foreach (var month in _calendar.Days.GroupBy(day => day.Date.Month))
+    {
+        <section class="editor-panel">
+            <h2>@month.Key 月</h2>
+            <div class="grid-shell">
+                <FluentDataGrid Items="@month.AsQueryable()" ResizableColumns="true">
+                    <PropertyColumn Property="@(x => x.Date)" Title="日期" />
+                    <TemplateColumn Title="星期" Context="item">@Weekday(item.Date.DayOfWeek)</TemplateColumn>
+                    <TemplateColumn Title="類型" Context="item">@DayTypeText(item.DayType)</TemplateColumn>
+                    <PropertyColumn Property="@(x => x.Name)" Title="名稱" />
+                    <TemplateColumn Title="工作日" Context="item">@(item.IsWorkingDay ? "是" : "否")</TemplateColumn>
+                    <TemplateColumn Title="來源" Context="item">@(item.IsManualOverride ? "公司異動" : "基準")</TemplateColumn>
+                </FluentDataGrid>
+            </div>
+        </section>
+    }
+}
+
+@code {
+    [Parameter] public int Year { get; set; }
+    private CompanyCalendarYearDetailDto? _calendar;
+    private string? _error;
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        try { _calendar = await CalendarQuery.GetHistoricalYearAsync(Year); }
+        catch { _error = "找不到可檢視的公司行事曆。"; }
+        finally { _loading = false; }
+    }
+
+    private static string Weekday(DayOfWeek day) =>
+        new[] { "日", "一", "二", "三", "四", "五", "六" }[(int)day];
+    private static string DayTypeText(CompanyCalendarDayType type) => type switch
+    {
+        CompanyCalendarDayType.WorkingDay => "工作日",
+        CompanyCalendarDayType.Saturday => "星期六",
+        CompanyCalendarDayType.Sunday => "星期日",
+        CompanyCalendarDayType.NationalHoliday => "國定假日",
+        CompanyCalendarDayType.SubstituteHoliday => "補假日",
+        CompanyCalendarDayType.CompanyHoliday => "公司假日",
+        CompanyCalendarDayType.ExceptionalWorkingDay => "例外工作日",
+        _ => "未知"
+    };
+}

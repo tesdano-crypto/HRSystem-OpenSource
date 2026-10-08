@@ -1,0 +1,86 @@
+@page "/parental-leave/{Id:guid}"
+@attribute [Authorize(Policy = PolicyNames.ParentalLeaveSelfService)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.ParentalLeave
+@using HRSystem.Domain.ParentalLeave
+@inject IParentalLeaveService ParentalLeaveService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IToastService ToastService
+
+<PageTitle>育嬰留停申請明細</PageTitle>
+<PageHeader Title="育嬰留停申請明細" Description="顯示申請、取消與提前復職的 append-only 歷程。" />
+
+@if (!string.IsNullOrWhiteSpace(_error)) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+else if (_item is null) { <LoadingState /> }
+else
+{
+    <section class="detail-card"><div class="detail-heading"><h2>@_item.RequestNumber</h2><strong>@StatusText(_item.EffectiveStatus)</strong></div>
+        <dl class="profile-grid">
+            <div class="profile-item"><dt>員工</dt><dd>@_item.EmployeeNumber－@_item.EmployeeName</dd></div><div class="profile-item"><dt>部門</dt><dd>@_item.DepartmentName</dd></div>
+            <div class="profile-item"><dt>子女出生日期</dt><dd>@_item.ChildBirthDate</dd></div><div class="profile-item"><dt>子女識別</dt><dd>@(_item.ChildDisplayName ?? _item.ChildReferenceId.ToString())</dd></div>
+            <div class="profile-item"><dt>申請期間</dt><dd>@_item.StartDate ～ @_item.EndDate</dd></div><div class="profile-item"><dt>有效結束日</dt><dd>@_item.EffectiveEndDate</dd></div>
+            <div class="profile-item"><dt>連續曆日</dt><dd>@_item.CalendarDayCount 日</dd></div><div class="profile-item"><dt>類型</dt><dd>@TypeText(_item.ApplicationType)</dd></div>
+            <div class="profile-item"><dt>提前申請</dt><dd>@(_item.NoticeType == ParentalLeaveNoticeType.EmergencyCare ? "緊急照顧" : "一般")</dd></div><div class="profile-item"><dt>社會保險意向</dt><dd>@(_item.ContinueSocialInsurance ? "繼續參加" : "不繼續參加")（僅紀錄意向）</dd></div>
+            <div class="profile-item full"><dt>聯絡方式</dt><dd>@_item.ContactAddress／@_item.ContactPhone</dd></div>
+            @if (!string.IsNullOrWhiteSpace(_item.Reason)) { <div class="profile-item full"><dt>原因／說明</dt><dd>@_item.Reason</dd></div> }
+            @if (!string.IsNullOrWhiteSpace(_item.EmergencyCareReason)) { <div class="profile-item full"><dt>緊急照顧原因</dt><dd>@_item.EmergencyCareReason</dd></div> }
+            @if (!string.IsNullOrWhiteSpace(_item.CancellationReason)) { <div class="profile-item full"><dt>取消原因</dt><dd>@_item.CancellationReason</dd></div> }
+            @if (_item.EarlyReturnDate.HasValue) { <div class="profile-item"><dt>提前復職日</dt><dd>@_item.EarlyReturnDate</dd></div><div class="profile-item"><dt>處理狀態</dt><dd>@(_item.IsEarlyReturnApproved ? "已核准" : "待核准")</dd></div> }
+        </dl>
+        <div class="form-actions">
+            @if (_isOwner && _item.Status == ParentalLeaveStatus.Draft) { <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="SubmitAsync">送出</FluentButton> }
+            @if (_isOwner && _item.Status == ParentalLeaveStatus.Submitted) { <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="WithdrawAsync">撤回</FluentButton> }
+            @if (_isOwner && _item.Status == ParentalLeaveStatus.Approved && !_item.EarlyReturnDate.HasValue) { <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => _showCancellation = true)">申請取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="@(() => _showEarlyReturn = true)">申請提前復職</FluentButton> }
+            @if (_canApprove && !_isOwner && _item.Status == ParentalLeaveStatus.Submitted) { <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="ApproveAsync">核准</FluentButton><FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => _showReject = true)">駁回</FluentButton> }
+            @if (_canApprove && !_isOwner && _item.Status == ParentalLeaveStatus.CancellationRequested) { <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="ApproveCancellationAsync">核准取消</FluentButton><FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => _showRejectCancellation = true)">駁回取消</FluentButton> }
+            @if (_canApprove && !_isOwner && _item.Status == ParentalLeaveStatus.Approved && _item.EarlyReturnDate.HasValue && !_item.IsEarlyReturnApproved) { <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="ApproveEarlyReturnAsync">核准提前復職</FluentButton> }
+        </div>
+    </section>
+
+    @if (_showCancellation) { @ReasonPanel("申請取消", "取消原因", RequestCancellationAsync, () => _showCancellation = false) }
+    @if (_showReject) { @ReasonPanel("駁回申請", "駁回原因", RejectAsync, () => _showReject = false) }
+    @if (_showRejectCancellation) { @ReasonPanel("駁回取消", "駁回原因", RejectCancellationAsync, () => _showRejectCancellation = false) }
+    @if (_showEarlyReturn)
+    {
+        <section class="editor-panel"><h2>申請提前復職</h2><div class="form-grid"><div class="field"><label for="early-return-date">復職日</label><InputDate id="early-return-date" @bind-Value="_earlyReturnDate" /></div><div class="field full"><label for="early-return-reason">原因</label><textarea id="early-return-reason" maxlength="1000" @bind="_reason" @bind:event="oninput"></textarea></div></div><div class="form-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => _showEarlyReturn = false)">取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="RequestEarlyReturnAsync">送出提前復職</FluentButton></div></section>
+    }
+
+    <section class="detail-card"><h2>處理歷程</h2>@if (_item.ApprovalHistories.Count == 0){<EmptyState Title="尚無處理歷程" Description="送出後會顯示歷程。" />}else{<ol class="timeline">@foreach(var history in _item.ApprovalHistories){<li><strong>@ActionText(history.Action)</strong><span>@TaipeiTime.Format(history.ActionAtUtc)－@history.ActionByDisplayName</span>@if(!string.IsNullOrWhiteSpace(history.Comment)){<p>@history.Comment</p>}</li>}</ol>}</section>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private ParentalLeaveRequestDto? _item;
+    private Guid? _currentEmployeeId;
+    private bool _canApprove, _busy, _showCancellation, _showReject, _showRejectCancellation, _showEarlyReturn;
+    private string? _reason, _error;
+    private DateOnly _earlyReturnDate;
+    private bool _isOwner => _item?.EmployeeId == _currentEmployeeId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        _currentEmployeeId = Guid.TryParse(state.User.FindFirst(HRSystem.Infrastructure.Identity.ApplicationUserClaimsPrincipalFactory.EmployeeIdClaimType)?.Value, out var id) ? id : null;
+        _canApprove = RolePermissions.HasPermission(
+            state.User, PolicyNames.ParentalLeaveApprove);
+        await LoadAsync();
+    }
+    private async Task LoadAsync(){try{_item=await ParentalLeaveService.GetDetailAsync(Id);_earlyReturnDate=_item.EndDate;}catch(Exception ex){_error=Friendly(ex);}}
+    private ParentalLeaveActionRequest Action() => new(){Id=Id,RowVersion=_item!.RowVersion};
+    private Task SubmitAsync()=>RunAsync(()=>ParentalLeaveService.SubmitAsync(Action()),"申請已送出。");
+    private Task WithdrawAsync()=>RunAsync(()=>ParentalLeaveService.WithdrawAsync(Action()),"申請已撤回。");
+    private Task ApproveAsync()=>RunAsync(()=>ParentalLeaveService.ApproveAsync(Action()),"申請已核准，期間已投影為出勤暫停。");
+    private Task ApproveCancellationAsync()=>RunAsync(()=>ParentalLeaveService.ApproveCancellationAsync(Action()),"取消已核准，相關日期已重新計算。");
+    private Task ApproveEarlyReturnAsync()=>RunAsync(()=>ParentalLeaveService.ApproveEarlyReturnAsync(Action()),"提前復職已核准，縮短區間已重新計算。");
+    private Task RequestCancellationAsync()=>ReasonRunAsync(comment=>ParentalLeaveService.RequestCancellationAsync(new(){Id=Id,RowVersion=_item!.RowVersion,Comment=comment}),"取消申請已送出。");
+    private Task RejectAsync()=>ReasonRunAsync(comment=>ParentalLeaveService.RejectAsync(new(){Id=Id,RowVersion=_item!.RowVersion,Comment=comment}),"申請已駁回。");
+    private Task RejectCancellationAsync()=>ReasonRunAsync(comment=>ParentalLeaveService.RejectCancellationAsync(new(){Id=Id,RowVersion=_item!.RowVersion,Comment=comment}),"取消申請已駁回。");
+    private Task RequestEarlyReturnAsync()=>ReasonRunAsync(comment=>ParentalLeaveService.RequestEarlyReturnAsync(new(){Id=Id,RowVersion=_item!.RowVersion,Comment=comment,ReturnDate=_earlyReturnDate}),"提前復職申請已送出。");
+    private async Task ReasonRunAsync(Func<string,Task<ParentalLeaveRequestDto>> action,string success){if(string.IsNullOrWhiteSpace(_reason)){_error="原因為必填欄位。";return;}await RunAsync(()=>action(_reason),success);}
+    private async Task RunAsync(Func<Task<ParentalLeaveRequestDto>> action,string success){if(_busy)return;_busy=true;_error=null;try{_item=await action();_reason=null;_showCancellation=_showReject=_showRejectCancellation=_showEarlyReturn=false;ToastService.ShowSuccess(success);}catch(Exception ex){_error=Friendly(ex);ToastService.ShowError(_error);}finally{_busy=false;}}
+    private RenderFragment ReasonPanel(string title,string label,Func<Task> submit,Action cancel)=>@<section class="editor-panel"><h2>@title</h2><div class="field"><label>@label</label><textarea maxlength="1000" @bind="_reason" @bind:event="oninput"></textarea></div><div class="form-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="cancel">取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="submit">確認</FluentButton></div></section>;
+    private static string StatusText(ParentalLeaveStatus value)=>value switch{ParentalLeaveStatus.Draft=>"草稿",ParentalLeaveStatus.Submitted=>"待核准",ParentalLeaveStatus.Approved=>"已核准",ParentalLeaveStatus.Rejected=>"已駁回",ParentalLeaveStatus.Withdrawn=>"已撤回",ParentalLeaveStatus.CancellationRequested=>"取消申請中",ParentalLeaveStatus.Cancelled=>"已取消",ParentalLeaveStatus.Completed=>"已結束",_=>value.ToString()};
+    private static string TypeText(ParentalLeaveApplicationType value)=>value switch{ParentalLeaveApplicationType.Standard=>"一般期間（至少 6 個月）",ParentalLeaveApplicationType.ShortTerm30DaysOrMore=>"30 日以上、未滿 6 個月",ParentalLeaveApplicationType.DailyUnder30Days=>"未滿 30 日按日申請",_=>value.ToString()};
+    private static string ActionText(ParentalLeaveApprovalAction value)=>value switch{ParentalLeaveApprovalAction.Submitted=>"已送出",ParentalLeaveApprovalAction.Approved=>"已核准",ParentalLeaveApprovalAction.Rejected=>"已駁回",ParentalLeaveApprovalAction.Withdrawn=>"已撤回",ParentalLeaveApprovalAction.CancellationRequested=>"已申請取消",ParentalLeaveApprovalAction.CancellationApproved=>"取消已核准",ParentalLeaveApprovalAction.CancellationRejected=>"取消已駁回",ParentalLeaveApprovalAction.EarlyReturnRequested=>"已申請提前復職",ParentalLeaveApprovalAction.EarlyReturnApproved=>"提前復職已核准",_=>value.ToString()};
+    private static string Friendly(Exception ex)=>ex is ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException or HRSystem.Domain.Common.DomainValidationException?ex.Message:"處理育嬰留停申請時發生錯誤。";
+}

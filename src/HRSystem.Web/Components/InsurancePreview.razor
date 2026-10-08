@@ -1,0 +1,31 @@
+@using HRSystem.Application.Payroll
+
+<div class="content-card insurance-preview">
+    <h3>套用前預覽</h3>
+    <p>加保日：@Value.CoverageFrom；不再投保生效日：@(Value.WithdrawalDate?.ToString() ?? "持續")</p>
+    @if (Value.Changes.Count > 0)
+    {
+        <ul>@foreach (var change in Value.Changes) { <li>@change</li> }</ul>
+    }
+    @foreach (var warning in Value.Warnings)
+    {
+        <FluentMessageBar Intent="@MessageIntent.Warning">@warning</FluentMessageBar>
+    }
+    @foreach (var error in Value.Errors)
+    {
+        <FluentMessageBar Intent="@MessageIntent.Error">@error</FluentMessageBar>
+    }
+    @if (Value.AffectedPeriods.Count > 0)
+    {
+        <table class="data-table"><thead><tr><th>受影響薪資月份</th><th>狀態</th><th>處理</th></tr></thead><tbody>
+        @foreach (var period in Value.AffectedPeriods)
+        {
+            <tr><td>@period.Year/@period.Month.ToString("00")</td><td>@InsuranceDisplay.PayrollPeriod(period.Status)</td><td>@(period.WillMarkSourceChanged ? "薪資資料已變更，需重新試算" : period.IsFinalizedProtected ? "正式結算維持不可變" : "尚無既有試算")</td></tr>
+        }
+        </tbody></table>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public InsuranceChangePreviewDto Value { get; set; } = null!;
+}

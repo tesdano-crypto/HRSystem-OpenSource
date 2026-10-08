@@ -1,0 +1,180 @@
+@page "/admin/comp-time"
+@attribute [Authorize(Policy = PolicyNames.LeaveManage)]
+@using System.ComponentModel.DataAnnotations
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.CompTime
+@using HRSystem.Domain.CompTime
+@inject ICompTimeService CompTimeService
+@inject IToastService ToastService
+
+<PageTitle>補休管理</PageTitle>
+<PageHeader Title="補休管理" Description="查看補休帳本並建立 HRSystem 接管前的歷史期初餘額；帳本不可修改或刪除。" />
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+
+<section class="editor-panel">
+    <h2>新增補休歷史期初餘額</h2>
+    <EditForm Model="_form" OnValidSubmit="CreateOpeningAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <div class="form-grid">
+            <div class="field">
+                <label for="comp-employee">員工</label>
+                <InputSelect id="comp-employee" @bind-Value="_form.EmployeeId">
+                    <option value="">請選擇</option>
+                    @foreach (var item in _items ?? [])
+                    {
+                        <option value="@item.EmployeeId">@item.EmployeeNumber — @item.EmployeeName</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="field"><label for="comp-hours">時數</label><InputNumber id="comp-hours" @bind-Value="_form.Hours" step="0.5" /></div>
+            <div class="field"><label for="comp-cutover">接管日期</label><InputDate id="comp-cutover" @bind-Value="_form.CutoverDate" /></div>
+            <div class="field full"><label for="comp-reason">原因</label><InputTextArea id="comp-reason" @bind-Value="_form.Reason" @oninput="HandleReasonInput" /></div>
+        </div>
+        <FluentMessageBar Intent="@MessageIntent.Info">歷史補休到期政策尚未設定；期初餘額不會建立任何加班資料。</FluentMessageBar>
+        <div class="form-actions"><FluentButton Type="@ButtonType.Submit" Appearance="@Appearance.Accent" Disabled="@_saving">建立期初餘額</FluentButton></div>
+    </EditForm>
+</section>
+
+<TrainingCompTimePanel Employees="@(_items ?? [])" Changed="LoadAsync" />
+
+<div class="toolbar">
+    <div class="field"><label for="comp-keyword">搜尋員工</label><input id="comp-keyword" @bind="_keyword" placeholder="編號或姓名" /></div>
+</div>
+
+@if (_items is null)
+{
+    <LoadingState />
+}
+else
+{
+    <div class="grid-shell">
+        <table class="data-table">
+            <thead><tr><th>員工編號</th><th>姓名</th><th>部門</th><th>可用補休</th><th>帳本</th></tr></thead>
+            <tbody>
+            @foreach (var item in FilteredItems)
+            {
+                <tr>
+                    <td>@item.EmployeeNumber</td><td>@item.EmployeeName</td><td>@item.DepartmentName</td>
+                    <td>@item.AvailableHours.ToString("0.##") 小時</td>
+                    <td><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => LoadLedgerAsync(item.EmployeeId))">查看</FluentButton></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_selected is not null)
+{
+    <h2>@_selected.EmployeeNumber @_selected.EmployeeName — 補休帳本</h2>
+    <p><strong>可用補休時數：</strong>@_selected.AvailableHours.ToString("0.##") 小時</p>
+    @if (_selected.Transactions.Count == 0)
+    {
+        <EmptyState Title="目前沒有補休紀錄" Description="可建立一筆歷史期初餘額。" />
+    }
+    else
+    {
+        <div class="grid-shell"><table class="data-table"><thead><tr><th>有效日期</th><th>類型</th><th>時數</th><th>原因</th></tr></thead><tbody>
+        @foreach (var item in _selected.Transactions)
+        {
+            <tr><td>@item.EffectiveDate</td><td>@TransactionText(item.TransactionType)</td><td>@item.SignedHours.ToString("+0.##;-0.##;0")</td><td>@item.Reason</td></tr>
+        }
+        </tbody></table></div>
+    }
+}
+
+@code {
+    private IReadOnlyList<CompTimeEmployeeSummaryDto>? _items;
+    private CompTimeBalanceDto? _selected;
+    private readonly OpeningForm _form = new();
+    private string? _keyword;
+    private string? _error;
+    private bool _saving;
+    private IEnumerable<CompTimeEmployeeSummaryDto> FilteredItems => (_items ?? [])
+        .Where(x => string.IsNullOrWhiteSpace(_keyword) ||
+            x.EmployeeNumber.Contains(_keyword, StringComparison.OrdinalIgnoreCase) ||
+            x.EmployeeName.Contains(_keyword, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _items = await CompTimeService.GetAdminSummariesAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task LoadLedgerAsync(Guid employeeId)
+    {
+        try
+        {
+            _selected = await CompTimeService.GetAdminBalanceAsync(employeeId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void HandleReasonInput(ChangeEventArgs e) =>
+        _form.Reason = e.Value?.ToString() ?? string.Empty;
+
+    private async Task CreateOpeningAsync()
+    {
+        if (_saving) return;
+        _saving = true;
+        _error = null;
+        try
+        {
+            _selected = await CompTimeService.CreateLegacyOpeningBalanceAsync(new()
+            {
+                EmployeeId = _form.EmployeeId,
+                Hours = _form.Hours,
+                CutoverDate = _form.CutoverDate,
+                Reason = _form.Reason
+            });
+            ToastService.ShowSuccess("補休歷史期初餘額已建立。");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex is ApplicationValidationException or ForbiddenAccessException or HRSystem.Domain.Common.DomainValidationException
+                ? ex.Message
+                : "建立補休歷史期初餘額時發生錯誤。";
+            ToastService.ShowError(_error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string TransactionText(CompTimeTransactionType type) => type switch
+    {
+        CompTimeTransactionType.Grant => "補休取得",
+        CompTimeTransactionType.Consume => "補休使用",
+        CompTimeTransactionType.Restore => "補休返還",
+        _ => "未知"
+    };
+
+    private sealed class OpeningForm
+    {
+        [Required(ErrorMessage = "請選擇員工。")]
+        public Guid EmployeeId { get; set; }
+        [Range(typeof(decimal), "0.5", "99999", ErrorMessage = "時數必須大於 0。")]
+        public decimal Hours { get; set; } = 16m;
+        public DateOnly CutoverDate { get; set; } = new(2026, 7, 1);
+        [Required(ErrorMessage = "原因為必填欄位。"), StringLength(1000)]
+        public string Reason { get; set; } = "HRSystem 上線前補休歷史期初餘額";
+    }
+}

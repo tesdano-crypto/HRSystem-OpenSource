@@ -1,0 +1,221 @@
+@page "/admin/overtime"
+@attribute [Authorize(Policy = PolicyNames.OvertimeManage)]
+@using HRSystem.Application.Overtime
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Domain.Overtime
+@inject IOvertimeRequestService OvertimeService
+@inject IOvertimeRecognitionService RecognitionService
+
+<PageTitle>加班審核</PageTitle>
+<PageHeader Title="加班審核" Description="審核員工自行送出的加班申請；本頁不提供代申請。" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar>
+}
+
+<section class="content-card">
+    <div class="filter-grid">
+        <div class="field"><label>開始日期</label><InputDate @bind-Value="_query.StartDate" /></div>
+        <div class="field"><label>結束日期</label><InputDate @bind-Value="_query.EndDate" /></div>
+        <div class="field"><label>狀態</label><InputSelect @bind-Value="_query.Status"><option value="">全部</option>@foreach(var status in Enum.GetValues<OvertimeRequestStatus>()){<option value="@status">@status</option>}</InputSelect></div>
+        <div class="field checkbox-field"><label><InputCheckbox @bind-Value="_query.PendingOnly" /> 只顯示待審核</label></div>
+    </div>
+    <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="LoadAsync">查詢</FluentButton>
+</section>
+
+<section class="content-card">
+    <div class="toolbar"><h2>實際加班認列</h2>
+        <InputSelect @bind-Value="_recognitionQuery.Filter" @bind-Value:after="LoadRecognitionsAsync">
+            <option value="@OvertimeRecognitionFilter.All">全部</option>
+            <option value="@OvertimeRecognitionFilter.Pending">待認列</option>
+            <option value="@OvertimeRecognitionFilter.Confirmed">已認列</option>
+            <option value="@OvertimeRecognitionFilter.NeedsReview">需重新確認</option>
+            <option value="@OvertimeRecognitionFilter.ExcessBeyondApproval">超出核准</option>
+            <option value="@OvertimeRecognitionFilter.MissingClockOut">缺卡</option>
+        </InputSelect>
+    </div>
+    @if (_recognitions.Count == 0)
+    {
+        <EmptyState Title="目前沒有符合條件的加班認列" Description="已核准的加班申請會在此等待實際工時確認。" />
+    }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th>員工／日期</th><th>核准時段</th><th>排定／實際下班</th><th>系統建議</th><th>差異</th><th>最終認列</th><th>狀態</th><th>操作</th></tr></thead>
+            <tbody>
+            @foreach (var item in _recognitions)
+            {
+                <tr>
+                    <td>@item.EmployeeNumber — @item.EmployeeName<br />@item.WorkDate.ToString("yyyy/MM/dd")</td>
+                    <td>@item.ApprovedPlannedStartAt.ToString("HH:mm")–@item.ApprovedPlannedEndAt.ToString("HH:mm")<br />@item.ApprovedMinutes 分</td>
+                    <td>@TimeText(item.ScheduledEndAt)／@TimeText(item.ObservedClockOutAt)<br />觀察 @item.ObservedOvertimeMinutes 分</td>
+                    <td>@RangeText(item.SuggestedStartAt, item.SuggestedEndAt, item.SuggestedMinutes)</td>
+                    <td>@DifferenceText(item)</td>
+                    <td>@RecognizedText(item)</td>
+                    <td>@RecognitionStatusText(item.Status)</td>
+                    <td>
+                        @if (item.Status != OvertimeRecognitionStatus.Confirmed)
+                        {
+                            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="@(() => OpenRecognition(item))">認列實際加班時間</FluentButton>
+                        }
+                        else
+                        {
+                            <FluentButton Appearance="@Appearance.Outline" Disabled="_busy" OnClick="@(() => ReopenAsync(item))">重新開啟</FluentButton>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</section>
+
+@if (_recognitionItem is not null)
+{
+    <section class="content-card" aria-label="確認實際加班">
+        <h2>確認實際加班 — @_recognitionItem.EmployeeNumber</h2>
+        <p>核准 @_recognitionItem.ApprovedMinutes 分；實際離場 @TimeText(_recognitionItem.ObservedClockOutAt)；系統建議 @_recognitionItem.SuggestedMinutes 分。</p>
+        @if (_recognitionItem.MissingClockOut) { <FluentMessageBar Intent="@MessageIntent.Warning">無法自動推算實際加班時間，請依核准資料或出勤調整確認。</FluentMessageBar> }
+        @if (_recognitionItem.ExcessBeyondApprovalMinutes > 0) { <FluentMessageBar Intent="@MessageIntent.Warning">超出核准時段 @_recognitionItem.ExcessBeyondApprovalMinutes 分鐘，待確認是否屬實際工作。</FluentMessageBar> }
+        <div class="form-grid">
+            <div class="field"><label>認列開始</label><InputDate Type="InputDateType.DateTimeLocal" @bind-Value="_confirm.RecognizedStartAt" /></div>
+            <div class="field"><label>認列結束</label><InputDate Type="InputDateType.DateTimeLocal" @bind-Value="_confirm.RecognizedEndAt" /></div>
+            <div class="field"><label>認列原因</label><InputSelect @bind-Value="_confirm.Reason">@foreach (var reason in Enum.GetValues<OvertimeRecognitionReason>()){<option value="@reason">@RecognitionReasonText(reason)</option>}</InputSelect></div>
+            <div class="field full-width"><label>認列說明</label><textarea @bind="_confirm.Note" @bind:event="oninput" maxlength="1000"></textarea></div>
+        </div>
+        <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="ConfirmRecognitionAsync">確認實際加班</FluentButton>
+        <FluentButton Appearance="@Appearance.Stealth" OnClick="CloseRecognition">取消</FluentButton>
+    </section>
+}
+
+<section class="content-card">
+@if (_busy) { <LoadingState /> }
+else if (_items.Count == 0) { <EmptyState Title="目前沒有符合條件的加班申請" Description="員工送出申請後會顯示於此。" /> }
+else
+{
+    <table class="data-table">
+        <thead><tr><th>員工</th><th>部門</th><th>日期／時段</th><th>分鐘</th><th>原因</th><th>出勤參考</th><th>狀態</th><th>審核</th></tr></thead>
+        <tbody>
+        @foreach (var item in _items)
+        {
+            <tr>
+                <td>@item.EmployeeNumber — @item.EmployeeName</td><td>@item.DepartmentName</td>
+                <td>@item.OvertimeDate.ToString("yyyy/MM/dd")<br />@item.PlannedStartAt.ToString("HH:mm")–@item.PlannedEndAt.ToString("MM/dd HH:mm")</td>
+                <td>@item.RequestedMinutes</td><td>@item.Reason</td>
+                <td>@ContextText(item.AttendanceContext)</td><td>@item.Status</td>
+                <td>
+                @if (item.Status == OvertimeRequestStatus.Submitted)
+                {
+                    <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="@(() => ApproveAsync(item))">核准</FluentButton>
+                    <FluentButton Appearance="@Appearance.Outline" Disabled="_busy" OnClick="@(() => OpenReject(item))">駁回</FluentButton>
+                }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+</section>
+
+@if (_rejectItem is not null)
+{
+    <section class="content-card" aria-label="駁回加班申請">
+        <h2>駁回 @_rejectItem.EmployeeNumber 的加班申請</h2>
+        <div class="field"><label>原因</label><InputSelect @bind-Value="_review.Reason">
+            <option value="@OvertimeReviewReason.BusinessNeedNotConfirmed">非工作需求</option>
+            <option value="@OvertimeReviewReason.TimeRangeIncorrect">時段不符</option>
+            <option value="@OvertimeReviewReason.DuplicateRequest">重複申請</option>
+            <option value="@OvertimeReviewReason.InsufficientInformation">資料不足</option>
+            <option value="@OvertimeReviewReason.Other">其他</option>
+        </InputSelect></div>
+        <div class="field"><label>審核說明</label><textarea @bind="_review.Note" @bind:event="oninput"></textarea></div>
+        <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="RejectAsync">確認駁回</FluentButton>
+        <FluentButton Appearance="@Appearance.Stealth" OnClick="CloseReject">取消</FluentButton>
+    </section>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "requestId")]
+    [Parameter] public Guid? RequestId { get; set; }
+    private OvertimeRequestQuery _query = new() { StartDate = DateOnly.FromDateTime(DateTime.Today).AddDays(-31), EndDate = DateOnly.FromDateTime(DateTime.Today).AddDays(31), PendingOnly = true };
+    private List<OvertimeRequestDto> _items = [];
+    private OvertimeRequestDto? _rejectItem;
+    private ReviewOvertimeRequest _review = new() { Reason = OvertimeReviewReason.BusinessNeedNotConfirmed };
+    private bool _busy;
+    private string? _message;
+    private MessageIntent _intent = MessageIntent.Info;
+    private OvertimeRecognitionQuery _recognitionQuery = new() { StartDate = DateOnly.FromDateTime(DateTime.Today).AddDays(-31), EndDate = DateOnly.FromDateTime(DateTime.Today).AddDays(31) };
+    private List<OvertimeRecognitionDto> _recognitions = [];
+    private OvertimeRecognitionDto? _recognitionItem;
+    private ConfirmOvertimeRecognitionRequest _confirm = new() { Reason = OvertimeRecognitionReason.ActualAttendanceConfirmed };
+    protected override async Task OnInitializedAsync()
+    {
+        if (RequestId.HasValue) _query = new() { RequestId = RequestId };
+        await LoadAsync(); await LoadRecognitionsAsync();
+    }
+    private async Task LoadAsync()
+    {
+        try { _busy = true; _items = (await OvertimeService.SearchForReviewAsync(_query)).ToList(); }
+        catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException) { Show(ex.Message, MessageIntent.Error); }
+        finally { _busy = false; }
+    }
+    private async Task LoadRecognitionsAsync()
+    {
+        try { _busy = true; _recognitions = (await RecognitionService.SearchAsync(_recognitionQuery)).ToList(); }
+        catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException) { Show(ex.Message, MessageIntent.Error); }
+        finally { _busy = false; }
+    }
+    private Task ApproveAsync(OvertimeRequestDto item) => RunAsync(() => OvertimeService.ApproveAsync(new() { Id=item.Id, RowVersion=item.RowVersion, Reason=OvertimeReviewReason.ApprovedAsRequested }));
+    private void OpenReject(OvertimeRequestDto item) { _rejectItem=item; _review=new(){Id=item.Id,RowVersion=item.RowVersion,Reason=OvertimeReviewReason.BusinessNeedNotConfirmed}; }
+    private void CloseReject() => _rejectItem=null;
+    private void OpenRecognition(OvertimeRecognitionDto item)
+    {
+        _recognitionItem = item;
+        _confirm = new()
+        {
+            OvertimeRequestId = item.OvertimeRequestId,
+            RecognitionId = item.RecognitionId,
+            RowVersion = item.RowVersion,
+            SourceFingerprint = item.SourceFingerprint,
+            RecognizedStartAt = item.SuggestedStartAt,
+            RecognizedEndAt = item.SuggestedEndAt,
+            Reason = item.MissingClockOut
+                ? OvertimeRecognitionReason.MissingPunchVerified
+                : OvertimeRecognitionReason.ActualAttendanceConfirmed
+        };
+    }
+    private void CloseRecognition() => _recognitionItem = null;
+    private Task ConfirmRecognitionAsync() => RunAsync(async () =>
+    {
+        await RecognitionService.ConfirmAsync(_confirm);
+        _recognitionItem = null;
+        await LoadRecognitionsAsync();
+    });
+    private Task ReopenAsync(OvertimeRecognitionDto item) => RunAsync(async () =>
+    {
+        await RecognitionService.ReopenAsync(new()
+        {
+            RecognitionId = item.RecognitionId!.Value,
+            RowVersion = item.RowVersion!,
+            SourceFingerprint = item.SourceFingerprint,
+            Note = "重新確認實際出勤資料"
+        });
+        await LoadRecognitionsAsync();
+    });
+    private Task RejectAsync() => RunAsync(async () => { await OvertimeService.RejectAsync(_review); _rejectItem=null; });
+    private async Task RunAsync(Func<Task> action)
+    {
+        try { _busy=true; await action(); Show("審核已完成。", MessageIntent.Success); await LoadAsync(); }
+        catch(Exception ex) when(ex is ApplicationValidationException or ForbiddenAccessException or ConcurrencyConflictException){Show(ex.Message,MessageIntent.Error);}
+        finally{_busy=false;}
+    }
+    private void Show(string value, MessageIntent intent){_message=value;_intent=intent;}
+    private static string ContextText(OvertimeAttendanceContextDto? value) => value is null ? "尚無每日出勤結果" : $"排定下班 {value.ScheduledEnd:HH\\:mm}；實際下班 {value.ActualClockOut:HH:mm}；延後 {value.OverstayMinutes} 分鐘{(value.MissingPunch ? "；缺卡" : string.Empty)}";
+    private static string TimeText(DateTime? value) => value?.ToString("MM/dd HH:mm") ?? "—";
+    private static string RangeText(DateTime? start, DateTime? end, int? minutes) => start.HasValue && end.HasValue ? $"{start:HH:mm}–{end:HH:mm}（{minutes} 分）" : "無法自動推算";
+    private static string DifferenceText(OvertimeRecognitionDto item) => item.ExcessBeyondApprovalMinutes > 0 ? $"超出核准 {item.ExcessBeyondApprovalMinutes} 分" : item.SuggestedMinutes < item.ApprovedMinutes ? $"較核准少 {item.ApprovedMinutes - (item.SuggestedMinutes ?? 0)} 分" : "—";
+    private static string RecognizedText(OvertimeRecognitionDto item) => item.RecognizedMinutes.HasValue ? $"{item.RecognizedMinutes} 分" : "尚未認列";
+    private static string RecognitionStatusText(OvertimeRecognitionStatus status) => status switch { OvertimeRecognitionStatus.Pending => "待實際認列", OvertimeRecognitionStatus.Confirmed => "已認列", OvertimeRecognitionStatus.NeedsReview => "需重新確認", OvertimeRecognitionStatus.Reopened => "已重新開啟", _ => status.ToString() };
+    private static string RecognitionReasonText(OvertimeRecognitionReason reason) => reason switch { OvertimeRecognitionReason.ActualAttendanceConfirmed => "依實際出勤確認", OvertimeRecognitionReason.WorkedBeyondApprovedPeriod => "超出核准時段仍為工作", OvertimeRecognitionReason.LeftBeforeApprovedEnd => "早於核准結束離場", OvertimeRecognitionReason.MissingPunchVerified => "缺卡另行確認", OvertimeRecognitionReason.NoActualOvertime => "未實際加班", OvertimeRecognitionReason.NonWorkActivityExcluded => "排除非工作活動", OvertimeRecognitionReason.AttendanceAdjustmentReference => "參考出勤調整", OvertimeRecognitionReason.Other => "其他", _ => reason.ToString() };
+}

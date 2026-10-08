@@ -1,0 +1,210 @@
+@page "/admin/payroll"
+@attribute [Authorize(Policy = PolicyNames.PayrollView)]
+@using HRSystem.Application.Abstractions.Security
+@using HRSystem.Application.Payroll
+@using HRSystem.Domain.Payroll
+@inject IPayrollService Payroll
+@inject ICurrentUser CurrentUser
+
+<PageTitle>薪資月份</PageTitle>
+<PageHeader Title="薪資月份" Description="薪資月份是要計算哪一個月份的薪資。" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar>
+}
+
+<section class="content-card payroll-workflow" aria-labelledby="payroll-workflow-title">
+    <h2 id="payroll-workflow-title">薪資作業流程</h2>
+    <ol>
+        <li>建立薪資月份</li>
+        <li>檢查員工薪資設定</li>
+        <li>建立全員薪資試算</li>
+        <li>處理待處理員工</li>
+        <li>新增本月臨時應發／扣款</li>
+        <li>重新試算有變更的人</li>
+        <li>確認本月應發總額、扣款總額與實領薪資</li>
+        <li>送出薪資簽核</li>
+        <li>薪資核准後，由具正式結算權限的使用者鎖定月份並發行薪資單</li>
+    </ol>
+</section>
+
+@if (_canManage)
+{
+<section class="content-card" aria-labelledby="create-payroll-period-title">
+    <h2 id="create-payroll-period-title">建立薪資月份</h2>
+    <p>建立要處理的薪資月份，例如 2026 年 8 月。這不是員工入職月份。</p>
+    <p>建立 2026 年 8 月，表示要計算 2026 年 8 月的薪資。可建立過去月份作為薪資試算與歷史資料驗證。</p>
+    <div class="form-grid">
+        <div class="field"><label for="payroll-year">年</label><InputNumber id="payroll-year" @bind-Value="_year" /></div>
+        <div class="field"><label for="payroll-month">月</label><InputNumber id="payroll-month" @bind-Value="_month" /></div>
+    </div>
+    <p class="field-hint">確定建立 @_year 年 @_month 月薪資月份？若已存在，請使用既有月份。</p>
+    <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="CreatePeriodAsync">建立薪資月份</FluentButton>
+</section>
+
+<section class="content-card" aria-labelledby="create-payroll-adjustment-title">
+    <h2 id="create-payroll-adjustment-title">新增本月臨時應發／扣款</h2>
+    <p>用於本月一次性的獎金、補助、補發或其他扣款。</p>
+    <p class="field-hint">應發例如獎金、臨時津貼、補助或補發薪資；扣款例如其他扣款或代扣項目。</p>
+    <div class="form-grid">
+        <div class="field">
+            <label for="adjustment-period">薪資月份</label>
+            <InputSelect id="adjustment-period" @bind-Value="_adjustment.PayrollPeriodId">
+                <option value="@Guid.Empty">請選擇</option>
+                @foreach (var period in _items.Where(x => x.Status != PayrollPeriodStatus.Finalized))
+                {
+                    <option value="@period.Id">@period.Year/@period.Month.ToString("00")（@PayrollDisplay.PeriodStatus(period.Status)）</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="field">
+            <label for="adjustment-employee">員工</label>
+            <InputSelect id="adjustment-employee" @bind-Value="_adjustment.EmployeeId">
+                <option value="@Guid.Empty">請選擇</option>
+                @foreach (var employee in _employees)
+                {
+                    <option value="@employee.EmployeeId">@employee.EmployeeNumber — @employee.EmployeeName</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="field">
+            <label for="adjustment-component">臨時項目</label>
+            <InputSelect id="adjustment-component" @bind-Value="_adjustment.ComponentDefinitionId">
+                <option value="@Guid.Empty">請選擇</option>
+                @foreach (var component in _manualComponents)
+                {
+                    <option value="@component.Id">@PayrollDisplay.Component(component.Code, component.Name)</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="field">
+            <label for="adjustment-direction">類型</label>
+            <InputSelect id="adjustment-direction" @bind-Value="_adjustment.Direction">
+                @foreach (var direction in Enum.GetValues<PayrollAdjustmentDirection>())
+                {
+                    <option value="@direction">@PayrollDisplay.Direction(direction)</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="field"><label for="adjustment-amount">金額</label><InputNumber id="adjustment-amount" @bind-Value="_adjustment.Amount" /></div>
+        <div class="field"><label for="adjustment-reason">說明</label><InputText id="adjustment-reason" placeholder="例如：8 月專案獎金" @bind-Value="_adjustment.Reason" /></div>
+    </div>
+    @if (SelectedLegacyAdjustmentWarning is { } warning)
+    {
+        <p class="field-hint" data-testid="legacy-adjustment-warning">@warning</p>
+    }
+    <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="CreateAdjustmentAsync">新增臨時應發／扣款</FluentButton>
+</section>
+}
+
+<section class="content-card">
+    @if (_loading)
+    {
+        <LoadingState />
+    }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th>薪資月份</th><th>計算期間</th><th>狀態</th><th>目前版本</th><th>試算員工</th><th>待處理</th><th>實領總額</th><th>操作</th></tr></thead>
+            <tbody>
+            @foreach (var item in _items)
+            {
+                <tr>
+                    <td>@item.Year/@item.Month.ToString("00")</td>
+                    <td>@item.PeriodStart ～ @item.PeriodEnd</td>
+                    <td>@PayrollDisplay.PeriodStatus(item.Status)</td>
+                    <td>@(item.LatestRevision == 0 ? "尚未試算" : $"版本 {item.LatestRevision}")</td>
+                    <td>@item.SnapshotEmployeeCount</td>
+                    <td>@item.BlockingCount</td>
+                    <td>@item.NetPay.ToString("N0")</td>
+                    <td>
+                        <a href="/admin/payroll/periods/@item.Id">開啟月份工作台</a>
+                        @if (!item.RunId.HasValue && _canManage)
+                        {
+                            <FluentButton Disabled="_busy" OnClick="@(() => CreateDraftAsync(item.Id))">建立全員薪資試算</FluentButton>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private int _year = DateTime.Today.Year;
+    private int _month = DateTime.Today.Month;
+    private bool _loading;
+    private bool _busy;
+    private bool _canManage;
+    private string? _message;
+    private MessageIntent _intent = MessageIntent.Info;
+    private IReadOnlyList<PayrollPeriodDto> _items = [];
+    private IReadOnlyList<EmployeePayrollSummaryDto> _employees = [];
+    private IReadOnlyList<PayrollComponentDto> _manualComponents = [];
+    private CreatePayrollAdjustmentRequest _adjustment = new() { Direction = PayrollAdjustmentDirection.Earning };
+    private string? SelectedLegacyAdjustmentWarning => PayrollDisplay.LegacyAdjustmentWarning(
+        _manualComponents.FirstOrDefault(x => x.Id ==
+            _adjustment.ComponentDefinitionId)?.Code);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canManage = CurrentUser.HasPermission(PolicyNames.PayrollManage);
+        var settings = await Payroll.GetSettingsAsync();
+        _manualComponents = settings.Components
+            .Where(x => x.IsActive && x.CalculationKind == PayrollCalculationKind.ManualAdjustment)
+            .ToArray();
+        _employees = await Payroll.GetEmployeesAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try { _items = await Payroll.GetPeriodsAsync(); }
+        finally { _loading = false; }
+    }
+
+    private Task CreatePeriodAsync() => ExecuteAsync(
+        () => Payroll.CreatePeriodAsync(_year, _month), "薪資月份已建立。");
+
+    private async Task CreateDraftAsync(Guid id)
+    {
+        _busy = true;
+        try
+        {
+            var result = await Payroll.CreateInitialDraftAsync(id);
+            _message = $"試算完成：建立 {result.Created}、待設定 {result.NeedsSetup}、政策待確認 {result.PolicyPending}、待確認 {result.NeedsReview}。";
+            _intent = result.Failed == 0 ? MessageIntent.Success : MessageIntent.Warning;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = PayrollDisplay.UserMessage(ex.Message);
+            _intent = MessageIntent.Error;
+        }
+        finally { _busy = false; }
+    }
+
+    private Task CreateAdjustmentAsync() => ExecuteAsync(
+        () => Payroll.CreateAdjustmentAsync(_adjustment), "本月臨時應發／扣款已新增。");
+
+    private async Task ExecuteAsync(Func<Task<Guid>> action, string success)
+    {
+        _busy = true;
+        try
+        {
+            await action();
+            _message = success;
+            _intent = MessageIntent.Success;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = PayrollDisplay.UserMessage(ex.Message);
+            _intent = MessageIntent.Error;
+        }
+        finally { _busy = false; }
+    }
+}

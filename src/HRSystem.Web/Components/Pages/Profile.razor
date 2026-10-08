@@ -1,0 +1,29 @@
+@page "/account/profile"
+@attribute [Authorize(Policy = PolicyNames.EmployeeSelfService)]
+@using HRSystem.Application.UserAccounts
+@inject IUserAccountService UserAccountService
+
+<PageTitle>我的資料｜<OrganizationTitle /></PageTitle>
+<PageHeader Title="我的資料" Description="檢視目前登入帳號與員工連結。" />
+
+@if (_profile is null)
+{
+    <LoadingState />
+}
+else
+{
+    <dl class="profile-grid">
+        <div class="profile-item"><dt>顯示名稱</dt><dd>@_profile.DisplayName</dd></div>
+        <div class="profile-item"><dt>帳號</dt><dd>@_profile.UserName</dd></div>
+        <div class="profile-item"><dt>Email</dt><dd>@_profile.Email</dd></div>
+        <div class="profile-item"><dt>角色</dt><dd>@string.Join("、", _profile.Roles.Select(SecurityDisplayCatalog.RoleName))</dd></div>
+        <div class="profile-item"><dt>員工編號</dt><dd>@(_profile.EmployeeNumber ?? "尚未連結")</dd></div>
+        <div class="profile-item"><dt>員工姓名</dt><dd>@(_profile.EmployeeName ?? "尚未連結")</dd></div>
+        <div class="profile-item"><dt>上次登入</dt><dd>@(_profile.LastLoginAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "—")</dd></div>
+    </dl>
+}
+
+@code {
+    private CurrentUserProfileDto? _profile;
+    protected override async Task OnInitializedAsync() => _profile = await UserAccountService.GetCurrentProfileAsync();
+}

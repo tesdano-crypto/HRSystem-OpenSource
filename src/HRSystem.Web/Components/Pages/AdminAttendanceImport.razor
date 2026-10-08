@@ -1,0 +1,290 @@
+@page "/admin/attendance-import"
+@attribute [Authorize(Policy = PolicyNames.AttendanceImportManage)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Domain.Attendance
+@inject IBioWebTaImportCoordinator ImportCoordinator
+@inject IBioWebTaImportStatusService ImportStatusService
+@inject IToastService ToastService
+@inject ILogger<AdminAttendanceImport> Logger
+
+<PageTitle>BioWebTA 出勤匯入</PageTitle>
+<PageHeader Title="BioWebTA 出勤匯入" Description="查看排程與近期執行狀態；需要補抓資料時仍可手動立即執行。">
+    <Actions>
+        <div class="import-run-actions">
+            @if (_status is not null)
+            {
+                <span class="muted">@RunNowHint(_status)</span>
+            }
+            <FluentButton Appearance="@Appearance.Accent" Disabled="@_busy" OnClick="RunNowAsync">立即執行</FluentButton>
+        </div>
+    </Actions>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else if (_status is not null)
+{
+    @if (!_status.IsScheduleEnabled)
+    {
+        <FluentMessageBar Intent="@MessageIntent.Warning">
+            自動匯入目前停用；手動「立即執行」仍可供核准的補抓作業使用。
+        </FluentMessageBar>
+    }
+
+    <section class="editor-panel" aria-label="匯入狀態">
+        <div class="detail-heading">
+            <h2>匯入狀態</h2>
+            <StatusBadge IsActive="@_status.IsScheduleEnabled" />
+        </div>
+        <div class="import-status-grid">
+            <dl class="profile-item">
+                <dt>自動匯入</dt>
+                <dd>@(_status.IsScheduleEnabled ? "已啟用" : "已停用")</dd>
+                <dt>固定排程（週一至週五）</dt>
+                <dd>@FormatSchedule(_status.ScheduleTimes)</dd>
+                <dt>下一次自動匯入</dt>
+                <dd>@FormatTaipei(_status.NextScheduledAtUtc)</dd>
+                <dt>時區</dt>
+                <dd>@_status.TimeZoneId</dd>
+            </dl>
+
+            <dl class="profile-item">
+                <dt>上次自動匯入</dt>
+                @if (_status.LastScheduled is null)
+                {
+                    <dd>尚無自動匯入紀錄</dd>
+                }
+                else
+                {
+                    <dd>@FormatTaipei(_status.LastScheduled.StartedAtUtc)</dd>
+                    <dt>結果</dt>
+                    <dd><FluentBadge Appearance="@StatusAppearance(_status.LastScheduled)">@StatusText(_status.LastScheduled)</FluentBadge></dd>
+                    <dt>掃描／新增／已存在</dt>
+                    <dd>@_status.LastScheduled.SourceRowCount／@_status.LastScheduled.InsertedCount／@_status.LastScheduled.DuplicateCount</dd>
+                }
+            </dl>
+
+            <dl class="profile-item">
+                <dt>上次手動匯入</dt>
+                @if (_status.LastManual is null)
+                {
+                    <dd>尚無手動匯入紀錄</dd>
+                }
+                else
+                {
+                    <dd>@FormatTaipei(_status.LastManual.StartedAtUtc)</dd>
+                    <dt>結果</dt>
+                    <dd><FluentBadge Appearance="@StatusAppearance(_status.LastManual)">@StatusText(_status.LastManual)</FluentBadge></dd>
+                    <dt>掃描／新增／已存在</dt>
+                    <dd>@_status.LastManual.SourceRowCount／@_status.LastManual.InsertedCount／@_status.LastManual.DuplicateCount</dd>
+                }
+            </dl>
+
+            <dl class="profile-item">
+                <dt>同步判斷</dt>
+                <dd>@ScheduledHealthText(_status.LastScheduled)</dd>
+                <dt>目前未對照 BioWebTA 事件</dt>
+                <dd>@_status.UnmappedEventCount</dd>
+                <dt>回抓天數</dt>
+                <dd>@_status.OverlapDays 天</dd>
+            </dl>
+        </div>
+    </section>
+
+    <section class="detail-card" aria-label="最近匯入紀錄">
+        <h2>最近匯入紀錄</h2>
+        @if (_status.RecentBatches.Count == 0)
+        {
+            <EmptyState Title="尚無匯入紀錄" Description="自動排程或手動立即執行完成後，會在這裡顯示安全的執行摘要。" />
+        }
+        else
+        {
+            <div class="grid-shell">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>執行時間</th>
+                            <th>類型</th>
+                            <th>狀態</th>
+                            <th>掃描</th>
+                            <th>新增</th>
+                            <th>已存在</th>
+                            <th>Relinked</th>
+                            <th>未對照</th>
+                            <th>影響／重算</th>
+                            <th>耗時</th>
+                            <th>明細</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _status.RecentBatches)
+                        {
+                            <tr>
+                                <td>@FormatTaipei(item.StartedAtUtc)</td>
+                                <td>@TriggerText(item.TriggerType)</td>
+                                <td><FluentBadge Appearance="@StatusAppearance(item)">@StatusText(item)</FluentBadge></td>
+                                <td>@item.SourceRowCount</td>
+                                <td>@item.InsertedCount</td>
+                                <td>@item.DuplicateCount</td>
+                                <td>未記錄</td>
+                                <td>未記錄</td>
+                                <td>未記錄</td>
+                                <td>@FormatDuration(item.Duration)</td>
+                                <td>
+                                    <details>
+                                        <summary>查看</summary>
+                                        <dl class="import-batch-detail">
+                                            <dt>Batch Id</dt><dd>@item.Id</dd>
+                                            <dt>開始</dt><dd>@FormatTaipei(item.StartedAtUtc)</dd>
+                                            <dt>完成</dt><dd>@FormatTaipei(item.CompletedAtUtc)</dd>
+                                            <dt>查詢區間</dt><dd>@FormatLocalWindow(item.QueryFromLocal, item.QueryToLocal)</dd>
+                                            <dt>衝突／失敗</dt><dd>@item.ConflictCount／@item.FailedCount</dd>
+                                            <dt>安全摘要</dt><dd>@(item.SafeErrorSummary ?? "無")</dd>
+                                        </dl>
+                                    </details>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private BioWebTaImportStatusDto? _status;
+    private string? _error;
+    private bool _loading = true;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _status = await ImportStatusService.GetAsync();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to load BioWebTA import status.");
+            _error = Friendly(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RunNowAsync()
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await ImportCoordinator.RunAsync(new(
+                BioWebTaImportTriggerType.Manual));
+            if (result.Outcome == BioWebTaImportExecutionOutcome.SkippedAlreadyRunning)
+            {
+                ToastService.ShowWarning("已有 BioWebTA 匯入正在執行，本次未重複啟動。");
+            }
+            else if (result.Outcome == BioWebTaImportExecutionOutcome.Failed)
+            {
+                _error = result.SafeErrorSummary ?? "BioWebTA 匯入失敗。";
+                ToastService.ShowError(_error);
+            }
+            else
+            {
+                ToastService.ShowSuccess(
+                    $"匯入完成：掃描 {result.SourceRowCount} 筆，新增 {result.InsertedCount} 筆，略過 {result.DuplicateCount} 筆。");
+            }
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = Friendly(exception);
+            ToastService.ShowError(_error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string FormatTaipei(DateTimeOffset? value) =>
+        value.HasValue
+            ? TaipeiTime.ToLocalDateTime(value.Value).ToString("yyyy/MM/dd HH:mm")
+            : "尚未完成";
+
+    private static string FormatSchedule(IReadOnlyList<TimeOnly> times) =>
+        string.Join("、", times.Select(item => item.ToString("HH:mm")));
+
+    private static string FormatDuration(TimeSpan? duration) =>
+        duration.HasValue
+            ? duration.Value.TotalSeconds < 60
+                ? $"{duration.Value.TotalSeconds:0.#} 秒"
+                : $"{duration.Value.TotalMinutes:0.#} 分鐘"
+            : "執行中";
+
+    private static string FormatLocalWindow(DateTime from, DateTime to) =>
+        $"{from:yyyy/MM/dd HH:mm} ～ {to:yyyy/MM/dd HH:mm}";
+
+    private static string TriggerText(BioWebTaImportTriggerType trigger) =>
+        trigger == BioWebTaImportTriggerType.Scheduled ? "自動" : "手動";
+
+    private static string StatusText(BioWebTaImportBatchSummaryDto item) =>
+        item.IsNoChanges ? "NoChanges" : item.Status switch
+        {
+            BioWebTaImportBatchStatus.Running => "執行中",
+            BioWebTaImportBatchStatus.Completed => "成功",
+            BioWebTaImportBatchStatus.CompletedWithWarnings => "警告",
+            BioWebTaImportBatchStatus.Failed => "失敗",
+            BioWebTaImportBatchStatus.Abandoned => "略過／中止",
+            _ => "未知"
+        };
+
+    private static Appearance StatusAppearance(BioWebTaImportBatchSummaryDto item) =>
+        item.Status is BioWebTaImportBatchStatus.Completed or
+            BioWebTaImportBatchStatus.CompletedWithWarnings
+            ? Appearance.Accent
+            : Appearance.Neutral;
+
+    private static string ScheduledHealthText(
+        BioWebTaImportBatchSummaryDto? scheduled) => scheduled switch
+    {
+        null => "尚無自動匯入紀錄",
+        { Status: BioWebTaImportBatchStatus.Completed } => "自動同步正常",
+        { Status: BioWebTaImportBatchStatus.CompletedWithWarnings } =>
+            "自動同步完成但有警告",
+        { Status: BioWebTaImportBatchStatus.Running } => "自動同步執行中",
+        _ => "最近自動同步未成功，請檢查"
+    };
+
+    private static string RunNowHint(BioWebTaImportStatusDto status) =>
+        status.LastScheduled is { } last
+            ? $"最近自動同步：{FormatTaipei(last.StartedAtUtc)}，{StatusText(last)}；下一次：{FormatTaipei(status.NextScheduledAtUtc)}"
+            : $"尚無自動匯入紀錄；下一次：{FormatTaipei(status.NextScheduledAtUtc)}";
+
+    private static string Friendly(Exception exception) => exception switch
+    {
+        AttendanceSyncException or ApplicationValidationException or
+            ConcurrencyConflictException or ForbiddenAccessException =>
+            exception.Message,
+        _ => "BioWebTA 匯入狀態載入失敗，請查閱安全的伺服器診斷紀錄。"
+    };
+}

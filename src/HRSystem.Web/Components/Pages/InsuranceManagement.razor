@@ -1,0 +1,404 @@
+@page "/admin/insurance"
+@page "/admin/insurance/{EmployeeId:guid}"
+@attribute [Authorize(Policy = PolicyNames.InsuranceView)]
+@using HRSystem.Application.Abstractions.Security
+@using HRSystem.Application.Payroll
+@inject IInsuranceManagementService Insurance
+@inject ICurrentUser CurrentUser
+
+<PageTitle>保險投保設定</PageTitle>
+<PageHeader Title="保險投保設定" Description="由會計或人資維護勞保、災保與健保的權威資料；先預覽，再確認套用。" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar>
+}
+
+<section class="content-card">
+    <h2>員工搜尋</h2>
+    <div class="form-grid">
+        <div class="field">
+            <label for="insurance-employee-search">員工編號或姓名</label>
+            <InputText id="insurance-employee-search" @bind-Value="_keyword" @oninput="HandleKeywordInput" />
+        </div>
+        <div class="field">
+            <label><InputCheckbox id="insurance-include-inactive" @bind-Value="_includeInactive" /> 顯示歷史離職員工</label>
+        </div>
+        <div class="field">
+            <label><InputCheckbox id="insurance-needs-setup" @bind-Value="_needsSetupOnly" /> 僅顯示投保資料待設定</label>
+        </div>
+    </div>
+    <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="SearchAsync">查詢</FluentButton>
+</section>
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else
+{
+    <section class="content-card">
+        <h2>員工保險狀態</h2>
+        @if (_employees.Count == 0)
+        {
+            <EmptyState Title="沒有符合條件的員工" Description="請調整搜尋條件後再查詢。" />
+        }
+        else
+        {
+            <table class="data-table">
+                <thead><tr><th>員工</th><th>在職狀態</th><th>勞保</th><th>勞保投保薪資</th><th>災保</th><th>災保投保薪資</th><th>健保</th><th>健保投保金額</th><th>健保眷屬人數</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var item in _employees)
+                {
+                    <tr>
+                        <td>@item.EmployeeNumber<br />@item.EmployeeName</td>
+                        <td>@(item.IsActive ? "在職" : "歷史離職")</td>
+                        <td>@InsuranceDisplay.LaborListStatus(item.LaborStatus)</td>
+                        <td>@Money(item.MonthlyLaborInsuredSalary)</td>
+                        <td>@InsuranceDisplay.Status(item.OccupationalStatus)</td>
+                        <td>@Money(item.MonthlyOccupationalInsuredSalary)</td>
+                        <td>@InsuranceDisplay.Status(item.HealthStatus)</td>
+                        <td>@Money(item.MonthlyHealthInsuredAmount)</td>
+                        <td>@(item.HealthDependentCount?.ToString() ?? "—")</td>
+                        <td><a href="@($"/admin/insurance/{item.EmployeeId}")">查看／維護</a></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </section>
+}
+
+@if (_detail is not null)
+{
+    <section class="content-card">
+        <h2>@_detail.Employee.EmployeeNumber — @_detail.Employee.EmployeeName</h2>
+        <p>@_detail.Employee.DepartmentName；@(_detail.Employee.IsActive ? "在職" : "歷史離職")</p>
+        <p class="field-hint">加保日為 coverage 開始日；不再投保生效日起即不再投保。系統內部會保存至生效日前一天，避免多計一天或一個月份。</p>
+        @if (!_detail.HasApplicableLaborPolicy ||
+             !_detail.HasApplicableOccupationalPolicy ||
+             !_detail.HasApplicableHealthPolicy)
+        {
+            <FluentMessageBar Intent="@MessageIntent.Warning">投保資料可以先建立；正式費率政策尚待核定時，薪資會顯示「政策待確認」，不會以 0 假裝完成。</FluentMessageBar>
+        }
+    </section>
+
+    @if (_canManage)
+    {
+        <section class="content-card">
+            <h2>勞保／就保設定</h2>
+            <p>勞保投保薪資是勞保與就保計算的獨立權威資料。</p>
+            <div class="form-grid">
+                <div class="field"><label><InputCheckbox id="labor-enrolled" @bind-Value="_labor.IsEnrolled" /> 已投保</label></div>
+                @if (_labor.IsEnrolled)
+                {
+                    <div class="field"><label for="labor-salary">勞保投保薪資</label><input id="labor-salary" name="labor-salary" type="number" min="0.01" step="0.01" @bind="_labor.MonthlyLaborInsuredSalary" @bind:event="oninput" /></div>
+                }
+                <div class="field"><label for="labor-from">加保日</label><input id="labor-from" name="labor-from" type="date" @bind="_labor.CoverageFrom" @bind:event="oninput" /></div>
+                <div class="field"><label for="labor-withdrawal">不再投保生效日</label><input id="labor-withdrawal" name="labor-withdrawal" type="date" @bind="_labor.WithdrawalDate" @bind:event="oninput" /></div>
+                <div class="field"><label for="labor-reason">維護原因</label><textarea id="labor-reason" maxlength="500" @bind="_labor.Reason" @bind:event="oninput"></textarea></div>
+            </div>
+            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="PreviewLaborAsync">預覽／驗證勞保</FluentButton>
+            @if (_laborPreview is not null)
+            {
+                <InsurancePreview Value="_laborPreview" />
+                <FluentButton Appearance="@Appearance.Accent" Disabled="@(_busy || !_laborPreview.CanApply)" OnClick="ApplyLaborAsync">確認套用勞保設定</FluentButton>
+            }
+        </section>
+
+        <section class="content-card">
+            <h2>職業災害保險設定</h2>
+            <p>災保可獨立投保，不要求員工同時具有勞保；正式費率政策另行維護。</p>
+            <div class="form-grid">
+                <div class="field"><label><InputCheckbox id="occupational-enrolled" @bind-Value="_occupational.IsEnrolled" /> 已投保</label></div>
+                @if (_occupational.IsEnrolled)
+                {
+                    <div class="field"><label for="occupational-salary">災保投保薪資</label><input id="occupational-salary" name="occupational-salary" type="number" min="0.01" step="0.01" @bind="_occupational.MonthlyInsuredSalary" @bind:event="oninput" /></div>
+                }
+                <div class="field"><label for="occupational-from">加保日</label><input id="occupational-from" name="occupational-from" type="date" @bind="_occupational.CoverageFrom" @bind:event="oninput" /></div>
+                <div class="field"><label for="occupational-withdrawal">不再投保生效日</label><input id="occupational-withdrawal" name="occupational-withdrawal" type="date" @bind="_occupational.WithdrawalDate" @bind:event="oninput" /></div>
+                <div class="field"><label for="occupational-reason">維護原因</label><textarea id="occupational-reason" maxlength="500" @bind="_occupational.Reason" @bind:event="oninput"></textarea></div>
+            </div>
+            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="PreviewOccupationalAsync">預覽／驗證災保</FluentButton>
+            @if (_occupationalPreview is not null)
+            {
+                <InsurancePreview Value="_occupationalPreview" />
+                <FluentButton Appearance="@Appearance.Accent" Disabled="@(_busy || !_occupationalPreview.CanApply)" OnClick="ApplyOccupationalAsync">確認套用災保設定</FluentButton>
+            }
+        </section>
+
+        <section class="content-card">
+            <h2>健保設定</h2>
+            <p>健保投保金額與眷屬人數為獨立權威資料，不會由薪資或勞保自動複製。</p>
+            <div class="form-grid">
+                <div class="field"><label><InputCheckbox id="health-enrolled" @bind-Value="_health.IsEnrolled" /> 已投保</label></div>
+                @if (_health.IsEnrolled)
+                {
+                    <div class="field"><label for="health-amount">健保投保金額</label><input id="health-amount" name="health-amount" type="number" min="0.01" step="0.01" @bind="_health.MonthlyHealthInsuredAmount" @bind:event="oninput" /></div>
+                    <div class="field"><label for="health-dependents">健保眷屬人數</label><input id="health-dependents" name="health-dependents" type="number" min="0" step="1" @bind="_health.DependentCount" @bind:event="oninput" /></div>
+                }
+                <div class="field"><label for="health-from">加保日</label><input id="health-from" name="health-from" type="date" @bind="_health.CoverageFrom" @bind:event="oninput" /></div>
+                <div class="field"><label for="health-withdrawal">不再投保生效日</label><input id="health-withdrawal" name="health-withdrawal" type="date" @bind="_health.WithdrawalDate" @bind:event="oninput" /></div>
+                <div class="field"><label for="health-reason">維護原因</label><textarea id="health-reason" maxlength="500" @bind="_health.Reason" @bind:event="oninput"></textarea></div>
+            </div>
+            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="PreviewHealthAsync">預覽／驗證</FluentButton>
+            @if (_healthPreview is not null)
+            {
+                <InsurancePreview Value="_healthPreview" />
+                <FluentButton Appearance="@Appearance.Accent" Disabled="@(_busy || !_healthPreview.CanApply)" OnClick="ApplyHealthAsync">確認套用健保設定</FluentButton>
+            }
+        </section>
+    }
+
+    <section class="content-card">
+        <h2>勞保／就保歷史</h2>
+        @if (_detail.LaborHistory.Count == 0)
+        {
+            <EmptyState Title="尚未建立勞保資料" Description="尚無勞保／就保的 effective-dated 紀錄。" />
+        }
+        else
+        {
+            <table class="data-table"><thead><tr><th>狀態</th><th>加保日</th><th>不再投保生效日</th><th>勞保投保薪資</th></tr></thead><tbody>
+            @foreach (var item in _detail.LaborHistory)
+            {
+                <tr><td>@InsuranceDisplay.LaborStatus(item.Status)</td><td>@item.EffectiveFrom</td><td>@(InsuranceDisplay.WithdrawalDate(item.EffectiveTo)?.ToString() ?? "持續")</td><td>@Money(item.MonthlyLaborInsuredSalary)</td></tr>
+            }
+            </tbody></table>
+        }
+    </section>
+
+    <section class="content-card">
+        <h2>災保歷史</h2>
+        @if (_detail.OccupationalHistory.Count == 0)
+        {
+            <EmptyState Title="尚未建立災保資料" Description="尚無職業災害保險的 effective-dated 紀錄。" />
+        }
+        else
+        {
+            <table class="data-table"><thead><tr><th>狀態</th><th>加保日</th><th>不再投保生效日</th><th>災保投保薪資</th><th>設定狀態</th></tr></thead><tbody>
+            @foreach (var item in _detail.OccupationalHistory)
+            {
+                <tr><td>@InsuranceDisplay.OccupationalStatus(item.Status)</td><td>@item.EffectiveFrom</td><td>@(InsuranceDisplay.WithdrawalDate(item.EffectiveTo)?.ToString() ?? "持續")</td><td>@Money(item.MonthlyInsuredSalary)</td><td>@(item.IsActive ? "有效" : "停用")</td></tr>
+            }
+            </tbody></table>
+        }
+    </section>
+
+    <section class="content-card">
+        <h2>健保歷史</h2>
+        @if (_detail.HealthHistory.Count == 0)
+        {
+            <EmptyState Title="尚未建立投保資料" Description="尚無健保的 effective-dated 紀錄。" />
+        }
+        else
+        {
+            <table class="data-table"><thead><tr><th>狀態</th><th>加保日</th><th>不再投保生效日</th><th>健保投保金額</th><th>健保眷屬人數</th></tr></thead><tbody>
+            @foreach (var item in _detail.HealthHistory)
+            {
+                <tr><td>@InsuranceDisplay.HealthStatus(item.Status)</td><td>@item.EffectiveFrom</td><td>@(InsuranceDisplay.WithdrawalDate(item.EffectiveTo)?.ToString() ?? "持續")</td><td>@Money(item.MonthlyInsuredAmount)</td><td>@(item.DependentCount?.ToString() ?? "—")</td></tr>
+            }
+            </tbody></table>
+        }
+    </section>
+}
+
+@code {
+    [Parameter] public Guid? EmployeeId { get; set; }
+    private bool _loading = true;
+    private bool _busy;
+    private bool _includeInactive;
+    private bool _needsSetupOnly;
+    private bool _canManage;
+    private string? _keyword;
+    private string? _message;
+    private MessageIntent _intent = MessageIntent.Info;
+    private IReadOnlyList<InsuranceEmployeeListItemDto> _employees = [];
+    private InsuranceEmployeeDetailDto? _detail;
+    private InsuranceChangePreviewDto? _laborPreview;
+    private InsuranceChangePreviewDto? _occupationalPreview;
+    private InsuranceChangePreviewDto? _healthPreview;
+    private PreviewLaborInsuranceChangeRequest _labor = NewLabor();
+    private PreviewOccupationalInsuranceChangeRequest _occupational =
+        NewOccupational();
+    private PreviewHealthInsuranceChangeRequest _health = NewHealth();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _canManage = CurrentUser.HasPermission(PolicyNames.InsuranceManage);
+        await SearchAsync();
+        if (EmployeeId.HasValue)
+            await LoadEmployeeAsync(EmployeeId.Value);
+    }
+
+    private async Task SearchAsync()
+    {
+        _loading = true;
+        try
+        {
+            _employees = await Insurance.SearchEmployeesAsync(_keyword,
+                _includeInactive, _needsSetupOnly);
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void HandleKeywordInput(ChangeEventArgs e) =>
+        _keyword = e.Value?.ToString() ?? string.Empty;
+
+    private async Task LoadEmployeeAsync(Guid employeeId)
+    {
+        _detail = await Insurance.GetEmployeeAsync(employeeId);
+        _labor = NewLabor(employeeId);
+        _occupational = NewOccupational(employeeId);
+        _health = NewHealth(employeeId);
+        _laborPreview = null;
+        _occupationalPreview = null;
+        _healthPreview = null;
+    }
+
+    private async Task PreviewLaborAsync()
+    {
+        _busy = true;
+        try
+        {
+            NormalizeLabor();
+            _laborPreview = await Insurance.PreviewLaborAsync(_labor);
+            _message = _laborPreview.CanApply ? "勞保預覽完成，確認內容後可套用。" : "勞保資料尚未通過驗證。";
+            _intent = _laborPreview.CanApply ? MessageIntent.Success : MessageIntent.Error;
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task PreviewOccupationalAsync()
+    {
+        _busy = true;
+        try
+        {
+            NormalizeOccupational();
+            _occupationalPreview = await Insurance.PreviewOccupationalAsync(
+                _occupational);
+            _message = _occupationalPreview.CanApply
+                ? "災保預覽完成，確認內容後可套用。"
+                : "災保資料尚未通過驗證。";
+            _intent = _occupationalPreview.CanApply
+                ? MessageIntent.Success : MessageIntent.Error;
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task PreviewHealthAsync()
+    {
+        _busy = true;
+        try
+        {
+            NormalizeHealth();
+            _healthPreview = await Insurance.PreviewHealthAsync(_health);
+            _message = _healthPreview.CanApply ? "健保預覽完成，確認內容後可套用。" : "健保資料尚未通過驗證。";
+            _intent = _healthPreview.CanApply ? MessageIntent.Success : MessageIntent.Error;
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task ApplyLaborAsync()
+    {
+        if (_laborPreview is null) return;
+        _busy = true;
+        try
+        {
+            NormalizeLabor();
+            var result = await Insurance.ApplyLaborAsync(_labor, _laborPreview.PreviewToken);
+            await LoadAfterApplyAsync();
+            _message = $"勞保設定已套用；{result.CurrentSnapshotsMarkedSourceChanged} 筆薪資試算需重新試算。";
+            _intent = MessageIntent.Success;
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task ApplyOccupationalAsync()
+    {
+        if (_occupationalPreview is null) return;
+        _busy = true;
+        try
+        {
+            NormalizeOccupational();
+            var result = await Insurance.ApplyOccupationalAsync(_occupational,
+                _occupationalPreview.PreviewToken);
+            await LoadAfterApplyAsync();
+            _message = $"災保設定已套用；{result.CurrentSnapshotsMarkedSourceChanged} 筆薪資試算需重新試算。";
+            _intent = MessageIntent.Success;
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task ApplyHealthAsync()
+    {
+        if (_healthPreview is null) return;
+        _busy = true;
+        try
+        {
+            NormalizeHealth();
+            var result = await Insurance.ApplyHealthAsync(_health, _healthPreview.PreviewToken);
+            await LoadAfterApplyAsync();
+            _message = $"健保設定已套用；{result.CurrentSnapshotsMarkedSourceChanged} 筆薪資試算需重新試算。";
+            _intent = MessageIntent.Success;
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task LoadAfterApplyAsync()
+    {
+        if (EmployeeId.HasValue)
+            await LoadEmployeeAsync(EmployeeId.Value);
+        _employees = await Insurance.SearchEmployeesAsync(_keyword,
+            _includeInactive, _needsSetupOnly);
+    }
+
+    private void NormalizeLabor()
+    {
+        if (_labor.IsEnrolled) return;
+        _labor.MonthlyLaborInsuredSalary = null;
+    }
+
+    private void NormalizeOccupational()
+    {
+        if (_occupational.IsEnrolled) return;
+        _occupational.MonthlyInsuredSalary = null;
+    }
+
+    private void NormalizeHealth()
+    {
+        if (_health.IsEnrolled) return;
+        _health.MonthlyHealthInsuredAmount = null;
+        _health.DependentCount = null;
+    }
+
+    private void ShowError(Exception exception)
+    {
+        _message = PayrollDisplay.UserMessage(exception.Message);
+        _intent = MessageIntent.Error;
+    }
+
+    private static PreviewLaborInsuranceChangeRequest NewLabor(Guid employeeId = default) =>
+        new() { EmployeeId = employeeId, CoverageFrom = DateOnly.FromDateTime(DateTime.Today) };
+    private static PreviewOccupationalInsuranceChangeRequest NewOccupational(
+        Guid employeeId = default) => new()
+        {
+            EmployeeId = employeeId,
+            CoverageFrom = DateOnly.FromDateTime(DateTime.Today)
+        };
+    private static PreviewHealthInsuranceChangeRequest NewHealth(Guid employeeId = default) =>
+        new() { EmployeeId = employeeId, CoverageFrom = DateOnly.FromDateTime(DateTime.Today), DependentCount = 0 };
+    private static string Money(decimal? amount) => amount?.ToString("N0") ?? "—";
+}

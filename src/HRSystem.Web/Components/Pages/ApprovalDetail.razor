@@ -1,0 +1,148 @@
+@page "/approvals/{Id:guid}"
+@attribute [Authorize(Policy = PolicyNames.ApprovalView)]
+@using HRSystem.Application.Approvals
+@using HRSystem.Application.Abstractions.Security
+@using HRSystem.Domain.Approvals
+@inject IApprovalService Approvals
+@inject ICurrentUser CurrentUser
+
+<PageTitle>簽核明細</PageTitle>
+<PageHeader Title="簽核明細" Description="核准與退回會在正式服務重新驗證來源指紋；來源已變更時不可核准。" />
+<p><a href="/approvals">← 返回簽核中心</a></p>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar>
+}
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_item is not null)
+{
+    <section class="content-card">
+        <h2>@_item.Title</h2>
+        <p>狀態：<strong>@ApprovalDisplay.Status(_item.Status)</strong></p>
+        <p>送簽時間：@_item.RequestedAtUtc.ToLocalTime()</p>
+        <dl>
+            @foreach (var value in _item.Summary)
+            {
+                <dt>@value.Label</dt><dd>@value.Value</dd>
+            }
+        </dl>
+        <p>LINE 通知：@ApprovalDisplay.NotificationStatus(_item.NotificationStatus)</p>
+        @if (_item.NotificationStatus == ApprovalNotificationStatus.Failed)
+        {
+            <p>@_item.NotificationErrorSummary</p>
+            @if (CanRetry)
+            {
+                <FluentButton Disabled="_busy" OnClick="RetryAsync">重試 LINE 私訊通知</FluentButton>
+            }
+        }
+    </section>
+
+    @if (_item.Status == ApprovalStatus.Pending && CanAct)
+    {
+        <section class="content-card">
+            <h2>簽核決策</h2>
+            <div class="field">
+                <label for="approval-return-reason">退回原因（退回時必填）</label>
+                <InputTextArea id="approval-return-reason" maxlength="1000"
+                    @bind-Value="_reason" @oninput="HandleReasonInput" />
+            </div>
+            <div class="form-actions">
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="ApproveAsync">核准</FluentButton>
+                <FluentButton Disabled="_busy" OnClick="ReturnAsync">退回</FluentButton>
+            </div>
+        </section>
+    }
+
+    @if (_item.Status == ApprovalStatus.Pending && CanCancel)
+    {
+        <section class="content-card">
+            <FluentButton Disabled="_busy" OnClick="CancelAsync">取消送簽</FluentButton>
+        </section>
+    }
+
+    <section class="content-card">
+        <h2>簽核歷程</h2>
+        <table class="data-table">
+            <thead><tr><th>時間</th><th>動作</th><th>管道</th><th>說明</th></tr></thead>
+            <tbody>
+            @foreach (var history in _item.History)
+            {
+                <tr><td>@history.ActionAtUtc.ToLocalTime()</td><td>@ApprovalDisplay.HistoryAction(history.Action)</td><td>@ChannelText(history.Channel)</td><td>@history.Comment</td></tr>
+            }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private ApprovalDto? _item;
+    private bool _loading = true;
+    private bool _busy;
+    private string? _reason;
+    private string? _message;
+    private MessageIntent _intent = MessageIntent.Info;
+    private bool CanAct => CurrentUser.HasPermission(PolicyNames.ApprovalAct) &&
+        CurrentUser.HasPermission(PolicyNames.PayrollApprove);
+    private bool CanRetry => _item?.RequestedByUserId == CurrentUser.UserId ||
+        CurrentUser.HasPermission(PolicyNames.SystemAdmin);
+    private bool CanCancel => CanRetry;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync(true);
+    }
+
+    private async Task LoadAsync(bool markViewed = false)
+    {
+        _loading = true;
+        try
+        {
+            _item = markViewed
+                ? await Approvals.MarkViewedAsync(Id)
+                : await Approvals.GetAsync(Id);
+            _message = null;
+        }
+        catch (Exception ex) { _message = ex.Message; _intent = MessageIntent.Error; }
+        finally { _loading = false; }
+    }
+
+    private Task ApproveAsync() => ExecuteAsync(
+        () => Approvals.ApproveAsync(new() { ApprovalId = Id }), "簽核已核准。");
+    private Task ReturnAsync() => ExecuteAsync(
+        () => Approvals.ReturnAsync(new() { ApprovalId = Id, Reason = _reason }), "簽核已退回。");
+    private Task CancelAsync() => ExecuteAsync(
+        () => Approvals.CancelAsync(new() { ApprovalId = Id }), "簽核已取消。");
+    private Task RetryAsync() => ExecuteAsync(
+        () => Approvals.RetryNotificationAsync(Id), "LINE 私訊通知已重試。");
+
+    private void HandleReasonInput(ChangeEventArgs e) =>
+        _reason = e.Value?.ToString() ?? string.Empty;
+
+    private async Task ExecuteAsync(Func<Task<ApprovalDto>> action, string message)
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            _item = await action();
+            _message = message;
+            _intent = MessageIntent.Success;
+        }
+        catch (Exception ex) { _message = ex.Message; _intent = MessageIntent.Error; }
+        finally { _busy = false; }
+    }
+
+    private static string ChannelText(ApprovalChannel channel) => channel switch
+    {
+        ApprovalChannel.System => "系統",
+        ApprovalChannel.Web => "Web",
+        ApprovalChannel.Line => "LINE 私訊",
+        _ => "未知"
+    };
+}

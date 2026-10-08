@@ -1,0 +1,77 @@
+@using HRSystem.Application.CompTime
+@using HRSystem.Domain.CompTime
+@inject ICompTimeService CompTimeService
+
+<section class="editor-panel">
+    <h2>新增上課補休</h2>
+    <p>非工作日公司安排上課；草稿不增加餘額。到期日目前只供保存與排序，不會自動失效、扣款或轉薪資。</p>
+    @if (_error is not null) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+    @if (_message is not null) { <FluentMessageBar Intent="@MessageIntent.Success">@_message</FluentMessageBar> }
+    <EditForm Model="_form" OnSubmit="CreateAsync">
+        <div class="form-grid">
+            <div class="field"><label for="training-employee">員工</label><InputSelect id="training-employee" @bind-Value="_form.EmployeeId"><option value="@Guid.Empty">請選擇</option>
+                @foreach (var item in Employees) { <option value="@item.EmployeeId">@item.EmployeeNumber — @item.EmployeeName</option> }
+            </InputSelect></div>
+            <div class="field"><label for="training-date">上課日期</label><InputDate id="training-date" @bind-Value="_form.TrainingDate" /></div>
+            <div class="field"><label for="training-hours">認列時數</label><InputNumber id="training-hours" @bind-Value="_form.Hours" step="0.5" /></div>
+            <div class="field"><label for="training-course">課程／原因</label><InputText id="training-course" @bind-Value="_form.CourseOrReason" /></div>
+            <div class="field"><label for="training-expiration">到期日（未定可空白）</label><InputDate id="training-expiration" @bind-Value="_form.ExpirationDate" /></div>
+            <div class="field"><label for="training-notes">備註</label><InputTextArea id="training-notes" @bind-Value="_form.Notes" /></div>
+        </div>
+        <FluentButton Type="@ButtonType.Submit" Disabled="_busy">建立上課補休草稿</FluentButton>
+    </EditForm>
+</section>
+<h2>上課補休</h2>
+<FluentButton Disabled="_busy" OnClick="ReloadAsync">重新載入上課補休</FluentButton>
+<div class="grid-shell"><table class="data-table">
+    <thead><tr><th>員工</th><th>上課日期／課程</th><th>原始時數</th><th>已使用</th><th>剩餘</th><th>到期日</th><th>狀態</th><th>操作／歷程</th></tr></thead>
+    <tbody>@foreach (var item in _items) {
+        <tr><td>@item.EmployeeNumber — @item.EmployeeName</td><td>@item.TrainingDate<br />@item.CourseOrReason</td>
+            <td>@item.Hours</td><td>@item.UsedHours</td><td>@item.RemainingHours</td><td>@(item.ExpirationDate?.ToString() ?? "未定")</td>
+            <td>@(item.Status == TrainingCompTimeStatus.Approved ? "已核准" : "草稿（未入帳）")</td>
+            <td><FluentButton Disabled="_busy" OnClick="@(() => Select(item))">查看歷程／覆核</FluentButton></td></tr>
+    }</tbody>
+</table></div>
+@if (_selected is not null) {
+    <section class="editor-panel">
+        <h3>@_selected.TrainingDate — @_selected.CourseOrReason</h3>
+        <p>來源識別：@_selected.Id</p><p>日別：@_selected.CalendarSnapshot</p><p>備註：@_selected.Notes</p>
+        @if (_selected.Warning is not null) { <FluentMessageBar Intent="@MessageIntent.Warning">@_selected.Warning</FluentMessageBar> }
+        @if (_selected.Status == TrainingCompTimeStatus.Draft) {
+            <label for="training-review">覆核理由（來源警告時必填）</label>
+            <textarea id="training-review" @bind="_review" maxlength="1000"></textarea>
+            <FluentButton Disabled="_busy" OnClick="ApproveAsync">確認覆核並核准補休</FluentButton>
+        }
+        <table class="data-table"><thead><tr><th>動作</th><th>時間</th><th>操作人</th><th>來源紀錄／覆核理由</th></tr></thead><tbody>
+        @foreach (var history in _selected.Histories) {
+            <tr><td>@(history.Status == TrainingCompTimeStatus.Approved ? "核准" : "建立草稿")</td><td>@history.OccurredAtUtc.ToLocalTime()</td><td>@history.Actor</td><td>@history.Evidence<br />@history.ReviewNote</td></tr>
+        }</tbody></table>
+    </section>
+}
+@code {
+    [Parameter] public IReadOnlyList<CompTimeEmployeeSummaryDto> Employees { get; set; } = [];
+    [Parameter] public EventCallback Changed { get; set; }
+    private CreateTrainingCompTimeRequest _form = new() { TrainingDate = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).DateTime) };
+    private IReadOnlyList<TrainingCompTimeDto> _items = [];
+    private TrainingCompTimeDto? _selected;
+    private bool _busy;
+    private string? _error, _message, _review;
+    protected override Task OnInitializedAsync() => ReloadAsync();
+    private void Select(TrainingCompTimeDto item) { _selected = item; _review = null; }
+    private async Task ReloadAsync() {
+        try { _items = await CompTimeService.GetTrainingAsync(); if (_selected is not null) _selected = _items.FirstOrDefault(x => x.Id == _selected.Id); }
+        catch (Exception ex) { Error(ex); }
+    }
+    private async Task CreateAsync() {
+        if (_busy) return; _busy = true; _error = _message = null;
+        try { _selected = await CompTimeService.CreateTrainingAsync(_form); _form = new() { TrainingDate = _selected.TrainingDate }; _message = "草稿已建立，核准後才增加補休。"; await ReloadAsync(); }
+        catch (Exception ex) { Error(ex); } finally { _busy = false; }
+    }
+    private async Task ApproveAsync() {
+        if (_busy || _selected is null) return; _busy = true; _error = _message = null;
+        try { _selected = await CompTimeService.ApproveTrainingAsync(new(_selected.Id, _selected.RowVersion, _selected.EvidenceFingerprint, _review)); _message = "上課補休已核准並入帳。"; await Changed.InvokeAsync(); await ReloadAsync(); }
+        catch (Exception ex) { Error(ex); await ReloadAsync(); } finally { _busy = false; }
+    }
+    private void Error(Exception ex) => _error = ex is HRSystem.Application.Common.Exceptions.ApplicationValidationException or HRSystem.Application.Common.Exceptions.ForbiddenAccessException or HRSystem.Domain.Common.DomainValidationException
+        ? ex.Message : "上課補休作業未完成，請重新載入或洽管理者。";
+}

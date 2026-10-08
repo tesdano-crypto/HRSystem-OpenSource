@@ -1,0 +1,37 @@
+@using HRSystem.Application.Attendance
+@using HRSystem.Domain.Overtime
+
+@if (Evidence is not null)
+{
+    <div class="non-working-punch-evidence" aria-label="非工作日打卡證據">
+        <strong>@(Evidence.HasNonWorkingPunch ? NonWorkingDayAttendanceDisplay.Presence : "原非工作日證據已變更，需重新確認")</strong>
+        <div>@NonWorkingDayAttendanceDisplay.Calendar(Evidence)</div>
+        <div>@Evidence.FirstPunch?.ToString(ShowSeconds ? "HH:mm:ss" : "HH:mm") → @Evidence.LastPunch?.ToString(ShowSeconds ? "HH:mm:ss" : "HH:mm")</div>
+        <div>@NonWorkingDayAttendanceDisplay.Span(Evidence)</div>
+        @if (ShowSeconds && Evidence.PunchSpan is { } span)
+        {
+            <div>打卡跨度：@span.ToString(@"hh\:mm\:ss")</div>
+        }
+        <details><summary>打卡證據（@Evidence.PunchCount 筆）</summary>
+            @foreach (var punch in Evidence.Punches) { <div>@punch.LocalTime.ToString("yyyy/MM/dd HH:mm:ss")</div> }
+        </details>
+        <small>@NonWorkingDayAttendanceDisplay.ManualReview</small>
+        @foreach (var link in Links)
+        {
+            <div><a href="@(EmployeeView ? $"/my-overtime?requestId={link.Id}" : $"/admin/overtime?requestId={link.Id}")">@NonWorkingDayAttendanceDisplay.RequestStatus(link.Status)</a>
+                <small> @link.Id.ToString("N")[..8]｜申請 @link.RequestedMinutes 分鐘｜有效認列 @(link.RecognizedMinutes?.ToString() ?? "待確認")</small></div>
+        }
+        @if (EmployeeView && Evidence.HasNonWorkingPunch && !Links.Any(x => x.Status is OvertimeRequestStatus.Draft or OvertimeRequestStatus.Submitted or OvertimeRequestStatus.Approved))
+        {
+            <a href="@($"/my-overtime?workDate={Date:yyyy-MM-dd}&nonWorking=true")">建立加班申請（僅草稿）</a>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public NonWorkingDayPunchEvidence? Evidence { get; set; }
+    [Parameter] public IReadOnlyList<AttendanceOvertimeLink> Links { get; set; } = [];
+    [Parameter] public DateOnly Date { get; set; }
+    [Parameter] public bool EmployeeView { get; set; }
+    [Parameter] public bool ShowSeconds { get; set; }
+}

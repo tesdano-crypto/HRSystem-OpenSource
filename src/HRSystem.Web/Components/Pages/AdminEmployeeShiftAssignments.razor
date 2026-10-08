@@ -1,0 +1,182 @@
+@page "/admin/attendance/shift-assignments"
+@attribute [Authorize(Policy = PolicyNames.AttendanceManage)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@inject IAttendanceManagementService AttendanceService
+@inject TimeProvider TimeProvider
+
+<PageTitle>員工班別指派</PageTitle>
+<PageHeader Title="員工班別指派" Description="生效迄日採包含制；同一員工的啟用期間不可重疊。" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_messageIntent">@_message</FluentMessageBar>
+}
+
+<EditForm Model="_model" OnValidSubmit="SaveAsync">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+    <div class="form-grid">
+        <div class="field">
+            <label for="assignment-employee">員工</label>
+            <InputSelect id="assignment-employee" @bind-Value="_model.EmployeeId" disabled="@_model.Id.HasValue">
+                <option value="">請選擇</option>
+                @foreach (var employee in _employees)
+                {
+                    <option value="@employee.EmployeeId">@employee.EmployeeNumber — @employee.EmployeeName</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="field">
+            <label for="assignment-shift">班別</label>
+            <InputSelect id="assignment-shift" @bind-Value="_model.ShiftId">
+                <option value="">請選擇</option>
+                @foreach (var shift in _shifts.Where(item => item.IsActive))
+                {
+                    <option value="@shift.Id">@shift.Code — @shift.Name</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="field"><label for="assignment-from">生效起日</label><InputDate id="assignment-from" @bind-Value="_model.EffectiveFrom" /></div>
+        <div class="field"><label for="assignment-to">生效迄日（包含）</label><InputDate id="assignment-to" @bind-Value="_model.EffectiveTo" /></div>
+    </div>
+    <div class="toolbar">
+        <FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="_loading">儲存指派</FluentButton>
+        <FluentButton Appearance="@Appearance.Stealth" OnClick="Reset">新增指派</FluentButton>
+    </div>
+</EditForm>
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_assignments.Count == 0)
+{
+    <EmptyState Title="尚無班別指派" Description="系統不會自動替所有員工指派班別。" />
+}
+else
+{
+    <div class="grid-shell">
+        <table class="data-table">
+            <thead><tr><th>員工</th><th>班別</th><th>生效起日</th><th>生效迄日（包含）</th><th>狀態</th><th>操作</th></tr></thead>
+            <tbody>
+                @foreach (var item in _assignments)
+                {
+                    <tr>
+                        <td>@item.EmployeeNumber — @item.EmployeeName</td>
+                        <td>@item.ShiftCode — @item.ShiftName</td>
+                        <td>@item.EffectiveFrom</td>
+                        <td>@(item.EffectiveTo?.ToString() ?? "持續有效")</td>
+                        <td>@(item.IsActive ? "啟用" : "停用")</td>
+                        <td>
+                            <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => Edit(item))">編輯</FluentButton>
+                            <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => SetActiveAsync(item))">
+                                @(item.IsActive ? "停用" : "啟用")
+                            </FluentButton>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<AttendanceEmployeeOptionDto> _employees = [];
+    private IReadOnlyList<AttendanceShiftDto> _shifts = [];
+    private IReadOnlyList<EmployeeShiftAssignmentDto> _assignments = [];
+    private SaveEmployeeShiftAssignmentRequest _model = new();
+    private bool _loading = true;
+    private string? _message;
+    private MessageIntent _messageIntent = MessageIntent.Info;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Reset();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _employees = await AttendanceService.GetEmployeeOptionsAsync();
+            _shifts = await AttendanceService.GetShiftsAsync(true);
+            _assignments = await AttendanceService.GetAssignmentsAsync(null, true);
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _loading = true;
+        try
+        {
+            await AttendanceService.SaveAssignmentAsync(_model);
+            _messageIntent = MessageIntent.Success;
+            _message = "班別指派已儲存。";
+            Reset();
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+            _loading = false;
+        }
+    }
+
+    private async Task SetActiveAsync(EmployeeShiftAssignmentDto item)
+    {
+        try
+        {
+            await AttendanceService.SetAssignmentActiveAsync(
+                item.Id,
+                !item.IsActive,
+                item.RowVersion);
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+    }
+
+    private void Edit(EmployeeShiftAssignmentDto item)
+    {
+        _model = new SaveEmployeeShiftAssignmentRequest
+        {
+            Id = item.Id,
+            EmployeeId = item.EmployeeId,
+            ShiftId = item.ShiftId,
+            EffectiveFrom = item.EffectiveFrom,
+            EffectiveTo = item.EffectiveTo,
+            RowVersion = item.RowVersion
+        };
+    }
+
+    private void Reset()
+    {
+        _model = new SaveEmployeeShiftAssignmentRequest
+        {
+            EffectiveFrom = DateOnly.FromDateTime(
+                TaipeiTime.ToLocalDateTime(TimeProvider.GetUtcNow()))
+        };
+    }
+
+    private void ShowError(Exception exception)
+    {
+        _messageIntent = MessageIntent.Error;
+        _message = exception is ApplicationValidationException or
+            ConcurrencyConflictException or ForbiddenAccessException
+            ? exception.Message
+            : "班別指派作業未完成，請稍後再試。";
+    }
+}

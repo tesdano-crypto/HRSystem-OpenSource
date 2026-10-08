@@ -1,0 +1,59 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@layout LoginLayout
+@inject IConfiguration Configuration
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>登入｜<OrganizationTitle /></PageTitle>
+
+<FluentCard Class="login-card">
+    <h1>登入</h1>
+    <p class="muted">請使用公司內網帳號登入。</p>
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <FluentMessageBar Intent="@MessageIntent.Error">@Error</FluentMessageBar>
+    }
+    @if (!AdminSeedConfigured)
+    {
+        <FluentMessageBar Intent="@MessageIntent.Info">
+            尚未設定初始管理員。請由開發人員使用 .NET User Secrets 設定 HR_ADMIN_USERNAME、HR_ADMIN_EMAIL、HR_ADMIN_PASSWORD 與 HR_ADMIN_DISPLAY_NAME，重新啟動後再登入。
+        </FluentMessageBar>
+    }
+    <form method="post" action="/account/login" data-enhance="false" class="account-form">
+        <AntiforgeryToken />
+        <input type="hidden" name="returnUrl" value="@SafeReturnUrl" />
+        <div class="field">
+            <label for="account">帳號或 Email</label>
+            <input id="account" name="account" autocomplete="username" required autofocus />
+        </div>
+        <div class="field">
+            <label for="password">密碼</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <label class="checkbox-row"><input name="rememberMe" type="checkbox" value="true" /> 保持登入</label>
+        <button class="primary-button" type="submit">登入</button>
+    </form>
+</FluentCard>
+
+@code {
+    [SupplyParameterFromQuery] public string? Error { get; set; }
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private string SafeReturnUrl =>
+        !string.IsNullOrWhiteSpace(ReturnUrl) && ReturnUrl.StartsWith('/') && !ReturnUrl.StartsWith("//") ? ReturnUrl : "/";
+
+    private bool AdminSeedConfigured => new[]
+    {
+        "HR_ADMIN_USERNAME", "HR_ADMIN_EMAIL", "HR_ADMIN_PASSWORD", "HR_ADMIN_DISPLAY_NAME"
+    }.All(key => !string.IsNullOrWhiteSpace(Configuration[key]));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+    }
+}

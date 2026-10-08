@@ -1,0 +1,56 @@
+@page "/company-calendar"
+@attribute [Authorize(Policy = PolicyNames.CompanyCalendarRead)]
+@using HRSystem.Application.CompanyCalendars
+@using HRSystem.Domain.CompanyCalendars
+@inject ICompanyCalendarQueryService CalendarQuery
+
+<PageTitle>公司行事曆</PageTitle>
+<PageHeader Title="公司行事曆" Description="檢視已發布及封存的公司共同行事曆。" />
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else if (_years.Count == 0)
+{
+    <EmptyState />
+}
+else
+{
+    <div class="grid-shell">
+        <FluentDataGrid Items="@_years.AsQueryable()" ResizableColumns="true">
+            <PropertyColumn Property="@(x => x.Year)" Title="年度" />
+            <TemplateColumn Title="狀態" Context="item">@StatusText(item.Status)</TemplateColumn>
+            <PropertyColumn Property="@(x => x.SourceTitle)" Title="官方來源" />
+            <PropertyColumn Property="@(x => x.ManifestVersion)" Title="版本" />
+            <TemplateColumn Title="人工異動" Context="item">@(item.HasManualOverrides ? "有" : "無")</TemplateColumn>
+            <TemplateColumn Title="操作" Context="item">
+                <a href="@($"/company-calendar/{item.Year}")">檢視</a>
+            </TemplateColumn>
+        </FluentDataGrid>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<CompanyCalendarYearDto> _years = [];
+    private string? _error;
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _years = await CalendarQuery.GetPublishedAndArchivedYearsAsync(); }
+        catch { _error = "載入公司行事曆時發生錯誤，請稍後再試。"; }
+        finally { _loading = false; }
+    }
+
+    private static string StatusText(CompanyCalendarStatus status) => status switch
+    {
+        CompanyCalendarStatus.Published => "已發布",
+        CompanyCalendarStatus.Archived => "已封存",
+        _ => "草稿"
+    };
+}

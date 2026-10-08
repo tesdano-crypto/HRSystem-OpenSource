@@ -1,0 +1,8 @@
+<div class="state-panel" role="status">
+    <FluentProgressRing />
+    <span>@Message</span>
+</div>
+
+@code {
+    [Parameter] public string Message { get; set; } = "資料載入中…";
+}

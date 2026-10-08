@@ -1,0 +1,81 @@
+@page "/parental-leave/new"
+@attribute [Authorize(Policy = PolicyNames.ParentalLeaveSelfService)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.ParentalLeave
+@using HRSystem.Domain.ParentalLeave
+@inject IParentalLeaveService ParentalLeaveService
+@inject IToastService ToastService
+@inject NavigationManager Navigation
+
+<PageTitle>新增育嬰留職停薪</PageTitle>
+<PageHeader Title="新增育嬰留職停薪" Description="期間採含首尾日的連續曆日計算；送出時會再次檢查任職、子女年齡、額度與提前日數。" />
+
+@if (!string.IsNullOrWhiteSpace(_error)) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+<section class="editor-panel">
+    <EditForm Model="_form" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator /><ValidationSummary />
+        <div class="form-grid">
+            <div class="field full"><label for="parental-child">子女</label><InputSelect id="parental-child" @bind-Value="_selectedChildId" @bind-Value:after="ChildChangedAsync"><option value="">新增子女識別</option>@foreach (var child in _children){<option value="@child.ChildReferenceId">@(child.ChildDisplayName ?? child.ChildBirthDate.ToString("yyyy/MM/dd"))</option>}</InputSelect></div>
+            <div class="field"><label for="parental-child-birth">子女出生日期</label><InputDate id="parental-child-birth" @bind-Value="_form.ChildBirthDate" @bind-Value:after="EstimateAsync" disabled="@_selectedChildId.HasValue" /></div>
+            <div class="field"><label for="parental-child-name">子女識別名稱（選填）</label><InputText id="parental-child-name" @bind-Value="_form.ChildDisplayName" disabled="@_selectedChildId.HasValue" /></div>
+            <div class="field"><label for="parental-start">開始日期</label><InputDate id="parental-start" @bind-Value="_form.StartDate" @bind-Value:after="EstimateAsync" /></div>
+            <div class="field"><label for="parental-end">結束日期</label><InputDate id="parental-end" @bind-Value="_form.EndDate" @bind-Value:after="EstimateAsync" /></div>
+            <div class="field full"><label for="parental-address">留停期間聯絡地址</label><InputText id="parental-address" @bind-Value="_form.ContactAddress" /></div>
+            <div class="field"><label for="parental-phone">聯絡電話</label><InputText id="parental-phone" @bind-Value="_form.ContactPhone" /></div>
+            <div class="field"><label><InputCheckbox @bind-Value="_form.ContinueSocialInsurance" /> 繼續參加社會保險（僅留存意向，不執行申報）</label></div>
+            <div class="field"><label for="parental-notice">提出類型</label><InputSelect id="parental-notice" @bind-Value="_form.NoticeType" @bind-Value:after="EstimateAsync"><option value="@ParentalLeaveNoticeType.Standard">一般申請</option><option value="@ParentalLeaveNoticeType.EmergencyCare">子女生病／停托／停課緊急照顧</option></InputSelect></div>
+            @if (_form.NoticeType == ParentalLeaveNoticeType.EmergencyCare)
+            {
+                <div class="field full"><label for="parental-emergency">緊急照顧原因</label><InputTextArea id="parental-emergency" @bind-Value="_form.EmergencyCareReason" /></div>
+            }
+            <div class="field full"><label for="parental-reason">原因／說明（選填）</label><InputTextArea id="parental-reason" @bind-Value="_form.Reason" /></div>
+        </div>
+        @if (_estimate is not null)
+        {
+            <dl class="profile-grid"><div class="profile-item"><dt>連續曆日</dt><dd>@_estimate.CalendarDays 日</dd></div><div class="profile-item"><dt>申請類型</dt><dd>@TypeText(_estimate.ApplicationType)</dd></div><div class="profile-item"><dt>提前日數</dt><dd>@_estimate.ActualNoticeDays 日（需要 @_estimate.RequiredNoticeDays 日）</dd></div><div class="profile-item"><dt>按日額度</dt><dd>已用 @_estimate.UsedDailyDays，剩餘 @_estimate.RemainingDailyDays 日</dd></div><div class="profile-item"><dt>短期次數</dt><dd>已用 @_estimate.UsedShortTermCount，剩餘 @_estimate.RemainingShortTermCount 次</dd></div></dl>
+            @foreach (var message in _estimate.Messages) { <FluentMessageBar Intent="@MessageIntent.Warning">@message</FluentMessageBar> }
+        }
+        <div class="form-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => Navigation.NavigateTo("/parental-leave"))">取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="_saving">儲存草稿</FluentButton></div>
+    </EditForm>
+</section>
+
+@code {
+    private readonly CreateParentalLeaveDraftRequest _form = new();
+    private IReadOnlyList<ParentalLeaveChildOptionDto> _children = [];
+    private Guid? _selectedChildId;
+    private ParentalLeaveEstimateDto? _estimate;
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var start = DateOnly.FromDateTime(DateTime.Today).AddDays(10);
+        _form.ChildBirthDate = start.AddYears(-1);
+        _form.StartDate = start;
+        _form.EndDate = start.AddMonths(6).AddDays(-1);
+        try { _children = await ParentalLeaveService.GetChildOptionsAsync(); await EstimateAsync(); }
+        catch (Exception ex) { _error = Friendly(ex); }
+    }
+
+    private async Task ChildChangedAsync()
+    {
+        _form.ChildReferenceId = _selectedChildId;
+        var child = _children.FirstOrDefault(item => item.ChildReferenceId == _selectedChildId);
+        if (child is not null) { _form.ChildBirthDate = child.ChildBirthDate; _form.ChildDisplayName = child.ChildDisplayName; }
+        await EstimateAsync();
+    }
+    private async Task EstimateAsync()
+    {
+        try { _estimate = await ParentalLeaveService.EstimateAsync(_form); _error = null; }
+        catch (Exception ex) { _estimate = null; _error = Friendly(ex); }
+    }
+    private async Task SaveAsync()
+    {
+        if (_saving) return; _saving = true; _error = null;
+        try { _form.ChildReferenceId = _selectedChildId; var draft = await ParentalLeaveService.CreateDraftAsync(_form); ToastService.ShowSuccess("育嬰留停草稿已儲存。"); Navigation.NavigateTo($"/parental-leave/{draft.Id}"); }
+        catch (Exception ex) { _error = Friendly(ex); ToastService.ShowError(_error); }
+        finally { _saving = false; }
+    }
+    private static string TypeText(ParentalLeaveApplicationType value) => value switch { ParentalLeaveApplicationType.Standard => "一般期間（至少 6 個月）", ParentalLeaveApplicationType.ShortTerm30DaysOrMore => "30 日以上、未滿 6 個月", ParentalLeaveApplicationType.DailyUnder30Days => "未滿 30 日按日申請", _ => value.ToString() };
+    private static string Friendly(Exception ex) => ex is ApplicationValidationException or ForbiddenAccessException or HRSystem.Domain.Common.DomainValidationException ? ex.Message : "處理育嬰留停草稿時發生錯誤。";
+}

@@ -1,0 +1,18 @@
+@page "/admin/payroll/finalizations/{FinalizationId:guid}"
+@attribute [Authorize(Policy = PolicyNames.PayrollView)]
+@using HRSystem.Application.Payroll
+@inject IPayrollFinalizationService Finalizations
+
+<PageTitle>正式結算摘要</PageTitle>
+<PageHeader Title="正式結算摘要" Description="此頁只讀取結算時固定的正式薪資版本。" />
+<p><a href="/admin/payroll/history">← 返回薪資歷史</a></p>
+@if (_value is null) { <LoadingState /> } else {
+<section class="content-card"><h2>@_value.Year/@_value.Month.ToString("00")</h2>
+<p>核准：@_value.ApprovedByDisplayName（@_value.ApprovedAtUtc.ToLocalTime()）｜結算：@_value.FinalizedByDisplayName（@_value.FinalizedAtUtc.ToLocalTime()）</p>
+<p>人數 @_value.EmployeeCount；應發 @_value.GrossPay.ToString("N0")；扣款 @_value.TotalDeductions.ToString("N0")；實領 @_value.NetPay.ToString("N0")。</p>
+<table class="data-table"><thead><tr><th>員工</th><th>部門</th><th>應發</th><th>扣款</th><th>實領</th><th>操作</th></tr></thead>
+<tbody>@foreach(var item in _value.Employees){<tr><td>@item.EmployeeNumber — @item.EmployeeName</td><td>@item.DepartmentName</td>
+<td>@item.GrossPay.ToString("N0")</td><td>@item.TotalDeductions.ToString("N0")</td><td>@item.NetPay.ToString("N0")</td>
+<td><a href="/admin/payroll/payslips/@item.Id">查看薪資單</a></td></tr>}</tbody></table></section> }
+@code { [Parameter] public Guid FinalizationId {get;set;} private PayrollFinalizationDto? _value;
+protected override async Task OnParametersSetAsync(){_value=await Finalizations.GetAsync(FinalizationId);} }

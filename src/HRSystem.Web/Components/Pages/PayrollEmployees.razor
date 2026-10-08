@@ -1,0 +1,16 @@
+@page "/admin/payroll/employees"
+@attribute [Authorize(Policy = PolicyNames.PayrollView)]
+@using HRSystem.Application.Payroll
+@using HRSystem.Domain.Payroll
+@inject IPayrollService Payroll
+
+<PageTitle>員工薪資設定</PageTitle>
+<PageHeader Title="員工薪資設定" Description="設定員工固定薪資、加給、勞健保投保資料及生效期間。" />
+<section class="content-card"><div class="field"><label for="payroll-employee-search">員工搜尋</label><InputText id="payroll-employee-search" @bind-Value="_keyword" /></div><FluentButton Appearance="@Appearance.Accent" OnClick="LoadAsync">查詢</FluentButton></section>
+<section class="content-card">
+@if (_loading) { <LoadingState /> }
+else { <table class="data-table"><thead><tr><th>員工</th><th>部門</th><th>目前方案</th><th>目前固定薪資</th><th>設定狀態</th><th></th></tr></thead><tbody>
+@foreach (var item in _items) { <tr><td>@item.EmployeeNumber — @item.EmployeeName</td><td>@item.DepartmentName</td><td>@(item.CurrentPlanName ?? "尚未設定")</td><td>@(item.CurrentBaseSalary.HasValue ? $"{PayrollDisplay.Component("BASE_SALARY", payrollPlanCode: item.CurrentPlanCode)} {item.CurrentBaseSalary:N2}" : "尚未設定")</td><td>@PayrollDisplay.EmployeeSetup(item.NeedsSetup ? PayrollEmployeeSetupStatus.NeedsSetup : PayrollEmployeeSetupStatus.Ready)</td><td><a href="/admin/payroll/employees/@item.EmployeeId">查看設定</a></td></tr> }
+</tbody></table> }
+</section>
+@code { private string? _keyword; private bool _loading; private IReadOnlyList<EmployeePayrollSummaryDto> _items = []; protected override Task OnInitializedAsync() => LoadAsync(); private async Task LoadAsync(){_loading=true;try{_items=await Payroll.GetEmployeesAsync(keyword:_keyword);}finally{_loading=false;}} }

@@ -1,0 +1,198 @@
+@page "/"
+@page "/dashboard"
+@attribute [Authorize(Policy = PolicyNames.DashboardAccess)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Dashboard
+@using HRSystem.Domain.LeaveRequests
+@inject IDashboardService DashboardService
+
+<PageTitle>工作儀表板｜<OrganizationTitle /></PageTitle>
+
+@if (_loading)
+{
+    <LoadingState Message="Dashboard 資料載入中…" />
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+    <section class="dashboard-error" role="alert">
+        <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+        <FluentButton Appearance="@Appearance.Accent" OnClick="LoadAsync">重新載入</FluentButton>
+    </section>
+}
+else if (_dashboard is not null)
+{
+    <div class="dashboard" data-dashboard-role="@_dashboard.User.Role">
+        <section class="dashboard-welcome">
+            <div>
+                <span class="dashboard-eyebrow">@Greeting()</span>
+                <h1>@_dashboard.User.DisplayName，歡迎回來</h1>
+                <p>@_dashboard.User.LocalDate.ToString("yyyy年M月d日")｜@RoleText(_dashboard.User.Role)</p>
+            </div>
+            <div class="dashboard-identity">
+                @if (_dashboard.User.HasEmployee)
+                {
+                    <strong>@_dashboard.User.EmployeeNumber</strong>
+                    <span>@_dashboard.User.EmployeeName｜@_dashboard.User.DepartmentName</span>
+                }
+                else
+                {
+                    <strong>管理帳號</strong>
+                    <span>@_dashboard.User.Notice</span>
+                }
+            </div>
+        </section>
+
+        <section aria-labelledby="summary-title">
+            <div class="dashboard-section-heading"><div><h2 id="summary-title">工作摘要</h2><p>快速掌握目前需要關注的項目。</p></div></div>
+            <div class="dashboard-summary-grid">
+                @if (_dashboard.MyLeave is not null)
+                {
+                    @SummaryCard("我的草稿", _dashboard.MyLeave.DraftCount, "尚未送出的申請", "/leave-requests", "my-draft")
+                    @SummaryCard("我的待審核", _dashboard.MyLeave.SubmittedCount, "已送出等待處理", "/leave-requests", "my-submitted")
+                    @SummaryCard("我的已核准", _dashboard.MyLeave.ApprovedCount, "已完成核准流程", "/leave-requests", "my-approved")
+                    @SummaryCard("我的被退回", _dashboard.MyLeave.RejectedCount, "可複製後重新申請", "/leave-requests", "my-rejected")
+                }
+                @if (_dashboard.Approvals is not null)
+                {
+                    @SummaryCard("待我處理", _dashboard.Approvals.PendingCount, _dashboard.Approvals.ScopeAvailable ? "待簽核申請" : "目前無可用部門範圍", _dashboard.Approvals.ScopeAvailable ? "/approvals/leave" : null, "pending-approval")
+                }
+                @if (_dashboard.TodayLeave is not null)
+                {
+                    @SummaryCard("今日請假人數", _dashboard.TodayLeave.EmployeeCount, "已核准且與今日重疊", null, "today-leave")
+                }
+                @if (_dashboard.Management is not null)
+                {
+                    @SummaryCard("啟用員工", _dashboard.Management.ActiveEmployeeCount, "目前啟用員工數", "/employees", "active-employees")
+                    @SummaryCard("啟用部門", _dashboard.Management.ActiveDepartmentCount, "目前啟用部門數", "/departments", "active-departments")
+                }
+            </div>
+        </section>
+
+        <div class="dashboard-two-column">
+            <section class="dashboard-panel" aria-labelledby="tasks-title">
+                <div class="dashboard-section-heading">
+                    <div><h2 id="tasks-title">我的待辦</h2><p>最多顯示 10 筆，不在 Dashboard 直接變更狀態。</p></div>
+                    <a class="dashboard-all-link" href="@TaskListHref()">查看全部</a>
+                </div>
+                @if (_dashboard.Tasks.Count == 0)
+                {
+                    <EmptyState Title="目前沒有待辦" Description="新的草稿、退回或待簽核項目會顯示於此。" />
+                }
+                else
+                {
+                    <ul class="dashboard-list dashboard-task-list">
+                        @foreach (var task in _dashboard.Tasks)
+                        {
+                            <li>
+                                <div><span class="dashboard-item-type">@task.Type</span><strong>@task.Title</strong><span>@TaipeiTime.Format(task.DateUtc)</span></div>
+                                <div class="dashboard-item-action"><LeaveStatusBadge Status="task.Status" /><a href="@task.Href">前往</a></div>
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
+
+            @if (_dashboard.User.HasEmployee)
+            {
+                <section class="dashboard-panel" aria-labelledby="recent-title">
+                    <div class="dashboard-section-heading">
+                        <div><h2 id="recent-title">最近請假紀錄</h2><p>自己的最近 5 筆申請。</p></div>
+                        <a class="dashboard-all-link" href="/leave-requests">查看全部</a>
+                    </div>
+                    @if (_dashboard.RecentRequests.Count == 0)
+                    {
+                        <EmptyState Title="尚無請假紀錄" Description="建立請假草稿後，最近紀錄會顯示於此。" />
+                    }
+                    else
+                    {
+                        <ul class="dashboard-list">
+                            @foreach (var item in _dashboard.RecentRequests)
+                            {
+                                <li>
+                                    <div><strong><a href="@($"/leave-requests/{item.Id}")">@item.RequestNumber</a></strong><span>@item.LeaveTypeName｜@TaipeiTime.Format(item.StartAt)～@TaipeiTime.Format(item.EndAt)</span><span>@item.DurationHours.ToString("0.##") 小時</span></div>
+                                    <LeaveStatusBadge Status="item.Status" />
+                                </li>
+                            }
+                        </ul>
+                    }
+                </section>
+            }
+        </div>
+
+        @if (_dashboard.TodayLeave is not null)
+        {
+            <section class="dashboard-panel" aria-labelledby="today-title">
+                <div class="dashboard-section-heading">
+                    <div><h2 id="today-title">今日請假</h2><p>Asia/Taipei 今日區間內重疊的已核准申請，最多顯示 20 筆。</p></div>
+                    @if (_dashboard.TodayLeave.HasMore && _dashboard.User.Role == RoleNames.Admin)
+                    {
+                        <a class="dashboard-all-link" href="/admin/leave-requests">查看全部</a>
+                    }
+                </div>
+                @if (!_dashboard.TodayLeave.ScopeAvailable)
+                {
+                    <FluentMessageBar Intent="@MessageIntent.Warning">@_dashboard.TodayLeave.Notice</FluentMessageBar>
+                }
+                else if (_dashboard.TodayLeave.Items.Count == 0)
+                {
+                    <EmptyState Title="今日無已核准請假" Description="草稿、待簽核、已退回與已撤回不會列入。" />
+                }
+                else
+                {
+                    <div class="today-leave-grid">
+                        @foreach (var item in _dashboard.TodayLeave.Items)
+                        {
+                            <article class="today-leave-item">
+                                <div><strong>@item.EmployeeNumber－@item.EmployeeName</strong><span>@item.DepartmentName｜@item.LeaveTypeName</span></div>
+                                <span>@TaipeiTime.Format(item.StartAt)～@TaipeiTime.Format(item.EndAt)</span>
+                            </article>
+                        }
+                    </div>
+                    @if (_dashboard.TodayLeave.HasMore && _dashboard.User.Role != RoleNames.Admin)
+                    {
+                        <p class="dashboard-limit-note">資料超過顯示上限；Manager 目前沒有可安全導向的同部門完整已核准清單。</p>
+                    }
+                }
+            </section>
+        }
+
+        <section aria-labelledby="quick-title">
+            <div class="dashboard-section-heading"><div><h2 id="quick-title">快速入口</h2><p>只顯示目前角色可使用的既有功能。</p></div></div>
+            <div class="dashboard-quick-grid">
+                @foreach (var action in _dashboard.QuickActions)
+                {
+                    <a class="dashboard-quick-action" href="@action.Href"><strong>@action.Title</strong><span>@action.Description</span><span aria-hidden="true">前往 →</span></a>
+                }
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    private DashboardDto? _dashboard;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try { _dashboard = await DashboardService.GetDashboardAsync(); }
+        catch (Exception ex)
+        {
+            _error = ex is ForbiddenAccessException ? ex.Message : "Dashboard 載入失敗，請稍後重試。";
+        }
+        finally { _loading = false; }
+    }
+
+    private RenderFragment SummaryCard(string title, int value, string description, string? href, string key) => @<FluentCard Class="dashboard-summary-card" data-summary-key="@key">
+        <span class="dashboard-card-label">@title</span><strong class="dashboard-card-value">@value</strong><span>@description</span>
+        @if (!string.IsNullOrWhiteSpace(href)) { <a href="@href">查看內容</a> }
+    </FluentCard>;
+
+    private string TaskListHref() => _dashboard?.Approvals is not null ? "/approvals/leave" : "/leave-requests";
+    private string Greeting() => DateTime.Now.Hour switch { < 11 => "早安", < 17 => "午安", _ => "晚安" };
+    private static string RoleText(string role) => SecurityDisplayCatalog.RoleName(role);
+}

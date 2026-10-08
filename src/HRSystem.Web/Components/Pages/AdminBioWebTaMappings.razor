@@ -1,0 +1,377 @@
+@page "/admin/biowebta-mappings"
+@attribute [Authorize(Policy = PolicyNames.AttendanceImportManage)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Employees
+@inject IBioWebPersonMappingService MappingService
+@inject IEmployeeService EmployeeService
+@inject IToastService ToastService
+
+<PageTitle>BioWebTA 對照</PageTitle>
+<PageHeader Title="BioWebTA 人員對照" Description="維護 BioWeb PIN 與 HRSystem 員工的有效期間；PIN 不會被推導為員工編號。">
+    <Actions>
+        <FluentButton Appearance="@Appearance.Accent" OnClick="StartCreate">新增對照</FluentButton>
+    </Actions>
+</PageHeader>
+
+@if (_editing)
+{
+    <section class="editor-panel" aria-label="BioWebTA 對照表單">
+        <h2>@(_editId.HasValue ? "編輯有效期間" : "新增對照")</h2>
+        <EditForm Model="_form" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <div class="form-grid">
+                @if (!_editId.HasValue)
+                {
+                    <div class="field">
+                        <label for="mapping-employee">HRSystem 員工</label>
+                        <InputSelect id="mapping-employee" @bind-Value="_form.EmployeeId">
+                            <option value="">請選擇員工</option>
+                            @foreach (var employee in _employees.Where(item => item.IsActive))
+                            {
+                                <option value="@employee.Id">@employee.EmployeeNumber－@employee.ChineseName</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="field">
+                        <label for="mapping-pin">BioWeb PIN</label>
+                        <InputText id="mapping-pin" @bind-Value="_form.BioWebPin" autocomplete="off" />
+                        <ValidationMessage For="@(() => _form.BioWebPin)" />
+                    </div>
+                }
+                else
+                {
+                    <div class="field"><label>HRSystem 員工</label><output>@_editEmployee</output></div>
+                    <div class="field"><label>BioWeb PIN</label><output>@_editPin</output></div>
+                }
+                <div class="field">
+                    <label for="mapping-from">生效起始（來源本地時間）</label>
+                    <input id="mapping-from" type="datetime-local" @bind="_form.EffectiveFrom" />
+                </div>
+                <div class="field">
+                    <label for="mapping-to">生效結束（來源本地時間，可留空）</label>
+                    <input id="mapping-to" type="datetime-local" @bind="_form.EffectiveTo" />
+                </div>
+            </div>
+            <div class="form-actions">
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="CancelEdit">取消</FluentButton>
+                <FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="_busy">儲存</FluentButton>
+            </div>
+        </EditForm>
+    </section>
+}
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else
+{
+    @if (_relinkPrompt is { RelinkCandidateCount: > 0 })
+    {
+        <FluentMessageBar Intent="@MessageIntent.Warning">
+            找到 @_relinkPrompt.RelinkCandidateCount 筆位於此對照有效期間內的未對照事件。
+            請確認後執行「重新連結未對照事件」；系統不會自動大量連結歷史資料。
+        </FluentMessageBar>
+        <div class="toolbar">
+            <FluentButton Appearance="@Appearance.Accent"
+                          Disabled="_busy"
+                          OnClick="RelinkPromptAsync">
+                重新連結未對照事件
+            </FluentButton>
+        </div>
+    }
+    <section>
+        <h2>現有對照</h2>
+        @if (_mappings.Count == 0)
+        {
+            <EmptyState />
+        }
+        else
+        {
+            <div class="grid-shell">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>員工</th><th>BioWeb PIN</th><th>有效期間（來源本地時間）</th><th>狀態</th><th>操作</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _mappings)
+                        {
+                            <tr>
+                                <td>@item.EmployeeNumber－@item.EmployeeName</td>
+                                <td>@item.BioWebPin</td>
+                                <td>@FormatLocal(item.EffectiveFrom) ～ @(item.EffectiveTo.HasValue ? FormatLocal(item.EffectiveTo.Value) : "持續有效")</td>
+                                <td><StatusBadge IsActive="item.IsActive" /></td>
+                                <td>
+                                    <div class="row-actions">
+                                        <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => StartEdit(item))">編輯期間</FluentButton>
+                                        @if (item.IsActive)
+                                        {
+                                            <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => RelinkAsync(item))">重新連結未對照事件</FluentButton>
+                                            <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => DeactivateAsync(item))">停用</FluentButton>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+
+    <section>
+        <h2>尚未對照的 BioWeb PIN</h2>
+        <p>下列事件已安全保留；建立對照後必須使用「重新連結未對照事件」明確處理。</p>
+        @if (_unmappedPins.Count == 0)
+        {
+            <EmptyState />
+        }
+        else
+        {
+            <div class="grid-shell">
+                <table class="data-table">
+                    <thead><tr><th>BioWeb PIN</th><th>事件數</th><th>最早事件</th><th>最近事件</th></tr></thead>
+                    <tbody>
+                        @foreach (var item in _unmappedPins)
+                        {
+                            <tr>
+                                <td>@item.BioWebPin</td>
+                                <td>@item.EventCount</td>
+                                <td>@FormatLocal(item.FirstEventLocalDateTime)</td>
+                                <td>@FormatLocal(item.LastEventLocalDateTime)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private IReadOnlyList<BioWebPersonMappingDto> _mappings = [];
+    private IReadOnlyList<UnmappedBioWebPinDto> _unmappedPins = [];
+    private IReadOnlyList<EmployeeDto> _employees = [];
+    private CreateBioWebPersonMappingRequest _form = NewForm();
+    private Guid? _editId;
+    private string? _editRowVersion;
+    private string? _editEmployee;
+    private string? _editPin;
+    private string? _error;
+    private BioWebRelinkPreviewDto? _relinkPrompt;
+    private bool _loading = true;
+    private bool _editing;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _employees = await LoadAllEmployeesAsync();
+            _mappings = await MappingService.GetMappingsAsync();
+            _unmappedPins = await MappingService.GetUnmappedPinsAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = Friendly(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<IReadOnlyList<EmployeeDto>> LoadAllEmployeesAsync()
+    {
+        var employees = new List<EmployeeDto>();
+        var pageNumber = 1;
+        do
+        {
+            var page = await EmployeeService.GetListAsync(new EmployeeQuery
+            {
+                PageNumber = pageNumber,
+                PageSize = 100
+            });
+            employees.AddRange(page.Items);
+            if (pageNumber >= page.TotalPages)
+            {
+                break;
+            }
+
+            pageNumber++;
+        }
+        while (true);
+
+        return employees;
+    }
+
+    private void StartCreate()
+    {
+        _form = NewForm();
+        _editId = null;
+        _editRowVersion = null;
+        _editEmployee = null;
+        _editPin = null;
+        _editing = true;
+    }
+
+    private void StartEdit(BioWebPersonMappingDto item)
+    {
+        _editId = item.Id;
+        _editRowVersion = item.RowVersion;
+        _editEmployee = $"{item.EmployeeNumber}－{item.EmployeeName}";
+        _editPin = item.BioWebPin;
+        _form = new CreateBioWebPersonMappingRequest
+        {
+            EmployeeId = item.EmployeeId,
+            BioWebPin = item.BioWebPin,
+            EffectiveFrom = item.EffectiveFrom,
+            EffectiveTo = item.EffectiveTo
+        };
+        _editing = true;
+    }
+
+    private void CancelEdit() => _editing = false;
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        _error = null;
+        _relinkPrompt = null;
+        try
+        {
+            var effectiveFrom = AsSourceLocal(_form.EffectiveFrom);
+            DateTime? effectiveTo = _form.EffectiveTo.HasValue
+                ? AsSourceLocal(_form.EffectiveTo.Value)
+                : null;
+            if (_editId.HasValue)
+            {
+                var saved = await MappingService.UpdateAsync(new UpdateBioWebPersonMappingRequest
+                {
+                    Id = _editId.Value,
+                    EffectiveFrom = effectiveFrom,
+                    EffectiveTo = effectiveTo,
+                    RowVersion = _editRowVersion ?? string.Empty
+                });
+                _relinkPrompt = await MappingService.GetRelinkPreviewAsync(saved.Id);
+                ToastService.ShowSuccess("BioWebTA 對照有效期間已更新。");
+            }
+            else
+            {
+                _form.EffectiveFrom = effectiveFrom;
+                _form.EffectiveTo = effectiveTo;
+                var saved = await MappingService.CreateAsync(_form);
+                _relinkPrompt = await MappingService.GetRelinkPreviewAsync(saved.Id);
+                ToastService.ShowSuccess("BioWebTA 對照已建立。");
+            }
+
+            _editing = false;
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = Friendly(exception);
+            ToastService.ShowError(_error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DeactivateAsync(BioWebPersonMappingDto item)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await MappingService.DeactivateAsync(item.Id, item.RowVersion);
+            ToastService.ShowSuccess("BioWebTA 對照已停用。");
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = Friendly(exception);
+            ToastService.ShowError(_error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RelinkAsync(BioWebPersonMappingDto item)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await MappingService.RelinkUnmappedEventsAsync(
+                item.Id,
+                item.RowVersion);
+            var refresh = result.PunchRecordsRefreshRecommended
+                ? "請重新整理打卡紀錄頁。"
+                : "打卡紀錄頁不需重新整理。";
+            ToastService.ShowSuccess(
+                $"已重新連結 {result.RelinkedCount} 筆；" +
+                $"重算 {result.RecalculatedKeyCount} 個員工日期；" +
+                $"無法重新連結 {result.UnableToRelinkCount} 筆。{refresh}");
+            _relinkPrompt = null;
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = Friendly(exception);
+            ToastService.ShowError(_error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RelinkPromptAsync()
+    {
+        var item = _relinkPrompt is null
+            ? null
+            : _mappings.SingleOrDefault(mapping =>
+                mapping.Id == _relinkPrompt.MappingId);
+        if (item is null)
+        {
+            _error = "找不到剛儲存的 BioWebTA 人員對照，請重新整理後再試。";
+            return;
+        }
+
+        await RelinkAsync(item);
+    }
+
+    private static CreateBioWebPersonMappingRequest NewForm() => new()
+    {
+        EffectiveFrom = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified)
+    };
+
+    private static DateTime AsSourceLocal(DateTime value) =>
+        DateTime.SpecifyKind(value, DateTimeKind.Unspecified);
+
+    private static string FormatLocal(DateTime value) =>
+        value.ToString("yyyy-MM-dd HH:mm");
+
+    private static string Friendly(Exception exception) => exception switch
+    {
+        ApplicationValidationException or EntityNotFoundException or
+            ConcurrencyConflictException or ForbiddenAccessException =>
+            exception.Message,
+        HRSystem.Domain.Common.DomainValidationException => exception.Message,
+        _ => "處理 BioWebTA 對照時發生錯誤，請稍後再試。"
+    };
+}

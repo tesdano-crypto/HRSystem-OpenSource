@@ -1,0 +1,181 @@
+@page "/attendance/punch-records"
+@attribute [Authorize(Policy = PolicyNames.AttendancePunchRecordRead)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Abstractions.Security
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@inject IAttendancePunchRecordService PunchRecordService
+@inject ICurrentUser CurrentUser
+@inject TimeProvider TimeProvider
+
+<PageTitle>打卡紀錄</PageTitle>
+<PageHeader Title="打卡紀錄" Description="僅查詢已匯入的原始打卡事件；不進行同步、對照、重新連結或出勤計算。" />
+
+<div class="toolbar">
+    <div class="field"><label for="punch-from">開始日期</label><InputDate id="punch-from" @bind-Value="_query.DateFrom" /></div>
+    <div class="field"><label for="punch-to">結束日期</label><InputDate id="punch-to" @bind-Value="_query.DateTo" /></div>
+    <div class="field"><label for="punch-employee">員工（編號／姓名）</label><InputText id="punch-employee" @bind-Value="_query.EmployeeKeyword" /></div>
+    @if (_isAdmin)
+    {
+        <div class="field">
+            <label for="punch-exact-employee">精確員工（長區間）</label>
+            <InputSelect id="punch-exact-employee" @bind-Value="_query.EmployeeId">
+                <option value="">未指定</option>
+                @foreach (var employee in _employees)
+                {
+                    <option value="@employee.EmployeeId">@employee.EmployeeNumber－@employee.EmployeeName</option>
+                }
+            </InputSelect>
+        </div>
+    }
+    <div class="field"><label for="punch-pin">BioWeb PIN（完全相符）</label><InputText id="punch-pin" @bind-Value="_query.BioWebPin" /></div>
+    <div class="field">
+        <label for="punch-mapping">對照狀態</label>
+        <select id="punch-mapping" @bind="_query.MappingStatus">
+            <option value="@AttendancePunchMappingStatus.All">全部</option>
+            <option value="@AttendancePunchMappingStatus.Mapped">已對照</option>
+            <option value="@AttendancePunchMappingStatus.Unmapped">未對照</option>
+        </select>
+    </div>
+    <div class="field"><label for="punch-device">裝置序號</label><InputText id="punch-device" @bind-Value="_query.DeviceSerialNumber" /></div>
+    <div class="field"><label for="punch-status">Status</label><InputNumber id="punch-status" @bind-Value="_query.StatusCode" /></div>
+    <div class="field"><label for="punch-verify">Verify</label><InputNumber id="punch-verify" @bind-Value="_query.VerifyCode" /></div>
+    <div class="field">
+        <label for="punch-page-size">每頁筆數</label>
+        <select id="punch-page-size" @bind="_query.PageSize">
+            <option value="25">25</option><option value="50">50</option><option value="100">100</option>
+        </select>
+    </div>
+    <FluentButton Appearance="@Appearance.Accent" Disabled="_loading" OnClick="SearchAsync">搜尋</FluentButton>
+    <FluentButton Appearance="@Appearance.Stealth" Disabled="_loading" OnClick="ResetAsync">重設</FluentButton>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else if (_result is null || _result.Items.Count == 0)
+{
+    <EmptyState Title="目前沒有符合條件的打卡紀錄" Description="請調整篩選條件後再試；此頁不會自動同步來源資料。" />
+}
+else
+{
+    <div class="grid-shell">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>打卡時間（台灣本地打卡時間）</th><th>員工編號</th><th>員工姓名</th><th>BioWeb PIN</th><th>對照狀態</th>
+                    <th>裝置序號</th><th>Status</th><th>Verify</th><th>來源事件 ID</th><th>匯入時間（台灣時間）</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in _result.Items)
+                {
+                    <tr>
+                        <td>@FormatSourceLocal(item.EventLocalDateTime)</td>
+                        <td>@(item.EmployeeNumber ?? "—")</td>
+                        <td>@(item.EmployeeName ?? "—")</td>
+                        <td>@item.SourcePersonPin</td>
+                        <td>@(item.IsMapped ? "已對照" : "未對照")</td>
+                        <td>@(item.DeviceSerialNumber ?? "—")</td>
+                        <td>@(item.StatusCode?.ToString() ?? "—")</td>
+                        <td>@(item.VerifyCode?.ToString() ?? "—")</td>
+                        <td>@item.ExternalEventId</td>
+                        <td>@TaipeiTime.Format(item.ImportedAtUtc)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <Paginator PageNumber="_result.PageNumber" TotalPages="_result.TotalPages" TotalCount="_result.TotalCount" PageChanged="ChangePageAsync" />
+}
+
+@code {
+    private AttendancePunchRecordQuery _query = new();
+    private PagedResult<AttendancePunchRecordDto>? _result;
+    private IReadOnlyList<AttendancePunchEmployeeOptionDto> _employees = [];
+    private bool _isAdmin;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAdmin = CurrentUser.HasPermission(PolicyNames.AttendanceViewAll);
+        _query = NewDefaultQuery();
+        if (_isAdmin)
+        {
+            try
+            {
+                _employees = await PunchRecordService.GetEmployeeOptionsAsync();
+            }
+            catch (Exception exception)
+            {
+                _error = Friendly(exception);
+                _loading = false;
+                return;
+            }
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        _query.PageNumber = 1;
+        await LoadAsync();
+    }
+
+    private async Task ResetAsync()
+    {
+        _query = NewDefaultQuery();
+        await LoadAsync();
+    }
+
+    private async Task ChangePageAsync(int page)
+    {
+        _query.PageNumber = page;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _result = await PunchRecordService.GetListAsync(_query);
+        }
+        catch (Exception exception)
+        {
+            _error = Friendly(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private AttendancePunchRecordQuery NewDefaultQuery()
+    {
+        var today = DateOnly.FromDateTime(TaipeiTime.ToLocalDateTime(TimeProvider.GetUtcNow()));
+        return new AttendancePunchRecordQuery
+        {
+            DateFrom = today.AddDays(-6),
+            DateTo = today,
+            PageSize = 50
+        };
+    }
+
+    private static string FormatSourceLocal(DateTime value) =>
+        value.ToString("yyyy-MM-dd HH:mm:ss");
+
+    private static string Friendly(Exception exception) => exception switch
+    {
+        ForbiddenAccessException or ApplicationValidationException => exception.Message,
+        _ => "讀取打卡紀錄時發生錯誤，請稍後再試。"
+    };
+}

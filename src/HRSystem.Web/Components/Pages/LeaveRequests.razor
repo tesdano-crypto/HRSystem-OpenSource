@@ -1,0 +1,211 @@
+@page "/leave-requests"
+@attribute [Authorize(Policy = PolicyNames.LeaveRequestSelfService)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@using HRSystem.Application.LeaveRequests
+@using HRSystem.Domain.LeaveRequests
+@using HRSystem.Domain.MasterData
+@inject ILeaveRequestService LeaveRequestService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IDialogService DialogService
+@inject IToastService ToastService
+@inject NavigationManager Navigation
+
+<PageTitle>我的請假</PageTitle>
+<PageHeader Title="我的請假" Description="建立草稿、送出申請並追蹤簽核狀態。">
+    <Actions>
+        @if (_hasEmployee)
+        {
+            <FluentButton Appearance="@Appearance.Accent" OnClick="@(() => Navigation.NavigateTo("/leave-requests/new"))">新增請假</FluentButton>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!_hasEmployee)
+{
+    <FluentMessageBar Intent="@MessageIntent.Warning">帳號尚未綁定員工資料，請洽系統管理員後再建立請假申請。</FluentMessageBar>
+}
+else
+{
+    @if (_cancelling is not null)
+    {
+        <section class="editor-panel">
+            <h2>申請撤簽 @_cancelling.RequestNumber</h2>
+            <div class="field">
+                <label for="leave-cancellation-reason">撤簽原因（必填）</label>
+                <textarea id="leave-cancellation-reason" maxlength="1000"
+                          @bind="_cancellationReason" @bind:event="oninput"></textarea>
+            </div>
+            <div class="form-actions">
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="CancelCancellation">取消</FluentButton>
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="RequestCancellationAsync">確認申請撤簽</FluentButton>
+            </div>
+        </section>
+    }
+
+    <div class="toolbar">
+        <div class="field"><label for="leave-keyword">關鍵字</label><input id="leave-keyword" @bind="_query.Keyword" placeholder="申請單號" /></div>
+        <div class="field"><label for="leave-status-filter">狀態</label><InputSelect id="leave-status-filter" @bind-Value="_query.Status"><option value="">全部</option>@foreach (var status in Enum.GetValues<LeaveRequestStatus>()){<option value="@status">@StatusText(status)</option>}</InputSelect></div>
+        <div class="field"><label for="leave-start-filter">開始日期</label><InputDate id="leave-start-filter" @bind-Value="_query.StartDate" /></div>
+        <div class="field"><label for="leave-end-filter">結束日期</label><InputDate id="leave-end-filter" @bind-Value="_query.EndDate" /></div>
+        <FluentButton Appearance="@Appearance.Accent" OnClick="SearchAsync">搜尋</FluentButton>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+    }
+    else if (_loading)
+    {
+        <LoadingState />
+    }
+    else if (_result is null || _result.Items.Count == 0)
+    {
+        <EmptyState Title="目前沒有請假紀錄" Description="請假時數依有效班別的實際工作區間計算；午休、非工作日及班表外時段不列入。" />
+    }
+    else
+    {
+        <div class="grid-shell">
+            <table class="data-table"><thead><tr><th>申請單號</th><th>假別</th><th>期間</th><th>時數</th><th>狀態</th><th>操作</th></tr></thead><tbody>
+            @foreach (var item in _result.Items)
+            {
+                <tr>
+                    <td><a href="@($"/leave-requests/{item.Id}")">@item.RequestNumber</a></td>
+                    <td>@item.LeaveTypeName</td>
+                    <td>@FormatRange(item)</td>
+                    <td>@FormatDuration(item)</td>
+                    <td><LeaveStatusBadge Status="item.Status" /></td>
+                    <td><div class="row-actions">
+                        @if (item.Status == LeaveRequestStatus.Draft)
+                        {
+                            <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => Navigation.NavigateTo($"/leave-requests/{item.Id}/edit"))">編輯</FluentButton>
+                            <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => SubmitAsync(item))">送出</FluentButton>
+                            <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => DeleteAsync(item))">刪除</FluentButton>
+                        }
+                        else if (item.Status == LeaveRequestStatus.Submitted)
+                        {
+                            <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => WithdrawAsync(item))">撤回</FluentButton>
+                        }
+                        else if (item.Status == LeaveRequestStatus.Approved)
+                        {
+                            <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => StartCancellation(item))">申請撤簽</FluentButton>
+                        }
+                        else if (item.Status == LeaveRequestStatus.CancellationRequested)
+                        {
+                            <span>撤簽申請中</span>
+                        }
+                    </div></td>
+                </tr>
+            }
+            </tbody></table>
+        </div>
+        <Paginator PageNumber="_result.PageNumber" TotalPages="_result.TotalPages" TotalCount="_result.TotalCount" PageChanged="ChangePageAsync" />
+    }
+}
+
+@code {
+    private readonly LeaveRequestQuery _query = new();
+    private PagedResult<LeaveRequestDto>? _result;
+    private bool _hasEmployee;
+    private bool _loading = true;
+    private bool _busy;
+    private LeaveRequestDto? _cancelling;
+    private string? _cancellationReason;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        _hasEmployee = state.User.HasClaim(x => x.Type == HRSystem.Infrastructure.Identity.ApplicationUserClaimsPrincipalFactory.EmployeeIdClaimType);
+        if (_hasEmployee) await LoadAsync(); else _loading = false;
+    }
+
+    private async Task SearchAsync() { _query.PageNumber = 1; await LoadAsync(); }
+    private async Task ChangePageAsync(int page) { _query.PageNumber = page; await LoadAsync(); }
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try { _result = await LeaveRequestService.GetMyRequestsAsync(_query); }
+        catch (Exception ex) { _error = Friendly(ex); }
+        finally { _loading = false; }
+    }
+
+    private async Task SubmitAsync(LeaveRequestDto item) => await ExecuteAsync(
+        () => LeaveRequestService.SubmitAsync(new LeaveRequestActionRequest { Id = item.Id, RowVersion = item.RowVersion }), "請假申請已送出。");
+
+    private async Task WithdrawAsync(LeaveRequestDto item)
+    {
+        var dialog = await DialogService.ShowConfirmationAsync("撤回後不可重新送出原申請，確定撤回嗎？", "撤回", "取消", "撤回請假");
+        if ((await dialog.Result).Cancelled) return;
+        await ExecuteAsync(() => LeaveRequestService.WithdrawAsync(new LeaveRequestActionRequest { Id = item.Id, RowVersion = item.RowVersion }), "請假申請已撤回。");
+    }
+
+    private async Task DeleteAsync(LeaveRequestDto item)
+    {
+        var dialog = await DialogService.ShowConfirmationAsync("確定刪除此未送出草稿嗎？", "刪除", "取消", "刪除草稿");
+        if ((await dialog.Result).Cancelled) return;
+        await ExecuteAsync(async () => { await LeaveRequestService.DeleteDraftAsync(new LeaveRequestActionRequest { Id = item.Id, RowVersion = item.RowVersion }); return item; }, "草稿已刪除。");
+    }
+
+    private void StartCancellation(LeaveRequestDto item)
+    {
+        _cancelling = item;
+        _cancellationReason = null;
+        _error = null;
+    }
+
+    private void CancelCancellation()
+    {
+        _cancelling = null;
+        _cancellationReason = null;
+    }
+
+    private async Task RequestCancellationAsync()
+    {
+        if (_cancelling is null) return;
+        if (string.IsNullOrWhiteSpace(_cancellationReason))
+        {
+            _error = "撤簽原因為必填欄位。";
+            return;
+        }
+
+        await ExecuteAsync(
+            () => LeaveRequestService.RequestCancellationAsync(new RequestLeaveCancellationRequest
+            {
+                Id = _cancelling.Id,
+                RowVersion = _cancelling.RowVersion,
+                Comment = _cancellationReason
+            }),
+            "撤簽申請已送出，主管處理前原請假仍然有效。");
+        CancelCancellation();
+    }
+
+    private async Task ExecuteAsync(Func<Task<LeaveRequestDto>> action, string success)
+    {
+        if (_busy) return;
+        _busy = true; _error = null;
+        try { await action(); ToastService.ShowSuccess(success); await LoadAsync(); }
+        catch (Exception ex) { _error = Friendly(ex); ToastService.ShowError(_error); }
+        finally { _busy = false; }
+    }
+
+    private static string FormatRange(LeaveRequestDto item) =>
+        item.CalculationMode == LeaveCalculationMode.CalendarDays
+            ? $"{item.CalendarStartDate:yyyy/MM/dd} ～ {item.CalendarEndDate:yyyy/MM/dd}（{item.CalendarDayCount} 日）"
+            : $"{TaipeiTime.Format(item.StartAt)} ～ {TaipeiTime.Format(item.EndAt)}";
+    private static string FormatDuration(LeaveRequestDto item) =>
+        item.CalculationMode == LeaveCalculationMode.CalendarDays
+            ? $"出勤 {item.DurationHours:0.##} 小時"
+            : $"{item.DurationHours:0.##} 小時";
+    private static string StatusText(LeaveRequestStatus status) => status switch
+    {
+        LeaveRequestStatus.Draft => "草稿", LeaveRequestStatus.Submitted => "待簽核",
+        LeaveRequestStatus.Approved => "已核准", LeaveRequestStatus.Rejected => "已退回",
+        LeaveRequestStatus.Withdrawn => "已撤回",
+        LeaveRequestStatus.CancellationRequested => "撤簽申請中",
+        LeaveRequestStatus.Cancelled => "已撤簽",
+        _ => status.ToString()
+    };
+    private static string Friendly(Exception ex) => ex is ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException or HRSystem.Domain.Common.DomainValidationException
+        ? ex.Message : "處理請假申請時發生錯誤，請稍後再試。";
+}

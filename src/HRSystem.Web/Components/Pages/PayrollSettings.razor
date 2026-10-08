@@ -1,0 +1,37 @@
+@page "/admin/payroll/settings"
+@attribute [Authorize(Policy = PolicyNames.PayrollView)]
+@using HRSystem.Application.Payroll
+@using HRSystem.Domain.Payroll
+@inject IPayrollService Payroll
+
+<PageTitle>薪資規則</PageTitle>
+<PageHeader Title="薪資規則" Description="管理公司共用的薪資計算規則與政策。" />
+
+@if (_loading) { <LoadingState /> }
+else if (_settings is null) { <EmptyState Title="薪資規則載入失敗" Description="請稍後再試。" /> }
+else
+{
+    <section class="content-card" aria-labelledby="payroll-rule-groups-title">
+        <h2 id="payroll-rule-groups-title">規則分類</h2>
+        <p>固定薪資規則、年資／績效、加班、出席補貼、勞保與健保會依各自生效期間套用。</p>
+        <p>尚未具備完整正式政策的項目會顯示「政策待確認」，不會以 0 元代替。</p>
+    </section>
+    <section class="content-card">
+        <h2>薪資項目</h2>
+        <table class="data-table"><thead><tr><th>薪資項目</th><th>類別</th><th>計算方式</th><th>狀態</th></tr></thead>
+        <tbody>@foreach (var item in _settings.Components) { <tr><td>@PayrollDisplay.Component(item.Code, item.Name)</td><td>@PayrollDisplay.Category(item.Category)</td><td>@PayrollDisplay.CalculationKind(item.CalculationKind)</td><td>@(item.IsActive ? "啟用" : "停用")</td></tr> }</tbody></table>
+    </section>
+    @foreach (var plan in _settings.Plans)
+    {
+        <section class="content-card"><h2>@plan.Name</h2><p>@plan.Description</p>
+        <table class="data-table"><thead><tr><th>項目</th><th>預設金額</th><th>規則</th><th>年資級距（月）</th></tr></thead>
+        <tbody>@foreach (var item in plan.Components) { <tr><td>@PayrollDisplay.Component(item.Code, item.Name, plan.Code)</td><td>@Money(item.DefaultAmount)</td><td>@PayrollDisplay.RuleKind(item.RuleKind)</td><td>@string.Join("、", item.Tiers.Select(t => $"{t.MinMonthsInclusive}–{(t.MaxMonthsExclusive?.ToString() ?? "以上")}: {t.Amount:N0}"))</td></tr> }</tbody></table>
+        </section>
+    }
+}
+
+@code {
+    private bool _loading = true; private PayrollSettingsDto? _settings;
+    protected override async Task OnInitializedAsync() { try { _settings = await Payroll.GetSettingsAsync(); } finally { _loading = false; } }
+    private static string Money(decimal? value) => value.HasValue ? value.Value.ToString("N2") : "政策待確認";
+}

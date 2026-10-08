@@ -1,0 +1,7 @@
+@page "/access-denied"
+@attribute [AllowAnonymous]
+
+<PageTitle>權限不足｜<OrganizationTitle /></PageTitle>
+<PageHeader Title="權限不足" Description="您的帳號沒有進入此功能的權限。" />
+<FluentMessageBar Intent="@MessageIntent.Warning">如需使用此功能，請洽系統管理員調整角色。</FluentMessageBar>
+<p><a href="/">返回首頁</a></p>

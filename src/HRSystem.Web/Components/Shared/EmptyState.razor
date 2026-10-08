@@ -1,0 +1,9 @@
+<div class="state-panel state-empty">
+    <strong>@Title</strong>
+    <span>@Description</span>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "目前沒有資料";
+    [Parameter] public string Description { get; set; } = "請調整篩選條件或建立第一筆資料。";
+}

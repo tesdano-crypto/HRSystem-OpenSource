@@ -1,0 +1,91 @@
+@page "/admin/attendance-requests"
+@attribute [Authorize(Policy = PolicyNames.AttendanceManage)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Domain.Attendance
+@inject IAttendanceCorrectionService CorrectionService
+
+<PageTitle>出勤異常申請審核</PageTitle>
+<PageHeader Title="出勤異常申請審核" Description="審核員工補卡、出勤時間更正與遲到／早退說明。" />
+
+@if (!string.IsNullOrWhiteSpace(_message)) { <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar> }
+
+<section class="content-card">
+    <div class="filter-grid">
+        <div class="field"><label>開始日期</label><InputDate @bind-Value="_query.StartDate" /></div>
+        <div class="field"><label>結束日期</label><InputDate @bind-Value="_query.EndDate" /></div>
+        <div class="field"><label>部門</label><InputSelect @bind-Value="_query.DepartmentId"><option value="">全部</option>@foreach (var item in _options.Departments) { <option value="@item.DepartmentId">@item.DepartmentCode — @item.DepartmentName</option> }</InputSelect></div>
+        <div class="field"><label>員工</label><InputSelect @bind-Value="_query.EmployeeId"><option value="">全部</option>@foreach (var item in FilteredEmployees) { <option value="@item.EmployeeId">@item.EmployeeNumber — @item.EmployeeName</option> }</InputSelect></div>
+        <div class="field"><label>狀態</label><InputSelect @bind-Value="_query.Status"><option value="">全部</option>@foreach (var status in Enum.GetValues<AttendanceCorrectionRequestStatus>()) { <option value="@status">@StatusText(status)</option> }</InputSelect></div>
+        <div class="field"><label>申請類型</label><InputSelect @bind-Value="_query.RequestType"><option value="">全部</option>@foreach (var type in Enum.GetValues<AttendanceCorrectionRequestType>()) { <option value="@type">@TypeText(type)</option> }</InputSelect></div>
+    </div>
+    <div class="toolbar"><FluentCheckbox @bind-Value="_query.PendingOnly">只顯示待審核</FluentCheckbox><FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="LoadAsync">查詢</FluentButton></div>
+</section>
+
+@if (_busy) { <LoadingState /> }
+else if (_items.Count == 0) { <EmptyState Title="目前沒有符合的出勤更正申請" Description="可調整條件後重新查詢。" /> }
+else
+{
+    <div class="grid-shell"><table class="data-table">
+        <thead><tr><th>員工／部門</th><th>日期</th><th>類型</th><th>目前出勤</th><th>建議更正</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody>@foreach (var item in _items) { <tr>
+            <td>@item.EmployeeNumber — @item.EmployeeName<div class="muted">@item.DepartmentName</div></td>
+            <td>@item.WorkDate.ToString("yyyy/MM/dd")</td><td>@TypeText(item.RequestType)</td>
+            <td>@ContextText(item.AttendanceContext)@if (item.IsSourceStale) { <div class="anomaly-time">出勤資料已變更，請重新確認</div> }</td>
+            <td>@ProposalText(item)</td><td>@ReasonText(item.Reason)<div>@item.EmployeeReason</div></td>
+            <td>@StatusText(item.Status)</td>
+            <td><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => Select(item))">查看／處理</FluentButton></td>
+        </tr> }</tbody>
+    </table></div>
+}
+
+@if (_selected is not null)
+{
+    <section class="content-card" role="dialog" aria-label="出勤更正申請審核">
+        <h2>@_selected.EmployeeNumber — @_selected.WorkDate.ToString("yyyy/MM/dd") — @TypeText(_selected.RequestType)</h2>
+        @if (_selected.AttendanceContext is { } context)
+        {
+            <dl class="detail-grid"><dt>排定</dt><dd>@TimeText(context.ScheduledStart)–@TimeText(context.ScheduledEnd)</dd><dt>目前認列</dt><dd>@ClockText(context.CurrentClockIn)–@ClockText(context.CurrentClockOut)</dd><dt>異常</dt><dd>遲到 @context.LateMinutes／早退 @context.EarlyLeaveMinutes／缺上班卡 @YesNo(context.MissingClockIn)／缺下班卡 @YesNo(context.MissingClockOut)</dd><dt>既有調整</dt><dd>@context.ExistingAdjustmentCount 筆</dd><dt>請假</dt><dd>@context.ApprovedLeaveMinutes 分鐘</dd><dt>加班</dt><dd>@context.OvertimeSummary</dd><dt>原始打卡摘要</dt><dd>@context.RawPunchSummary</dd></dl>
+        }
+        <p>員工原因：@ReasonText(_selected.Reason) — @_selected.EmployeeReason</p>
+        <div class="field"><label>審核說明（駁回必填）</label><textarea maxlength="1000" @bind="_reviewNote" @bind:event="oninput"></textarea></div>
+        <div class="toolbar">
+            @if (_selected.Status == AttendanceCorrectionRequestStatus.Submitted)
+            {
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy || _selected.IsSourceStale" OnClick="ApproveAsync">核准</FluentButton>
+                <FluentButton Appearance="@Appearance.Outline" Disabled="_busy" OnClick="RejectAsync">駁回</FluentButton>
+            }
+            <FluentButton Appearance="@Appearance.Stealth" OnClick="Close">關閉</FluentButton>
+        </div>
+        <h3>申請歷程</h3><ul>@foreach (var history in _selected.Histories) { <li>@history.OccurredAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm") — @history.Action @history.Note</li> }</ul>
+    </section>
+}
+
+@code {
+    private AttendanceCorrectionQuery _query = new() { PendingOnly = true, StartDate = DateOnly.FromDateTime(DateTime.Today.AddMonths(-1)), EndDate = DateOnly.FromDateTime(DateTime.Today.AddMonths(1)) };
+    private AttendanceCorrectionFilterOptions _options = new([], []);
+    private List<AttendanceCorrectionRequestDto> _items = [];
+    private AttendanceCorrectionRequestDto? _selected;
+    private string? _reviewNote;
+    private bool _busy;
+    private string? _message;
+    private MessageIntent _intent;
+    private IEnumerable<AttendanceReviewEmployeeOption> FilteredEmployees => _query.DepartmentId.HasValue ? _options.Employees.Where(item => item.DepartmentId == _query.DepartmentId.Value) : _options.Employees;
+
+    protected override async Task OnInitializedAsync() { _options = await CorrectionService.GetReviewFilterOptionsAsync(); await LoadAsync(); }
+    private async Task LoadAsync() { try { _busy = true; _items = (await CorrectionService.SearchForReviewAsync(_query)).ToList(); } catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException) { Show(ex.Message, MessageIntent.Error); } finally { _busy = false; } }
+    private void Select(AttendanceCorrectionRequestDto item) { _selected = item; _reviewNote = null; }
+    private void Close() { _selected = null; _reviewNote = null; }
+    private Task ApproveAsync() => ReviewAsync(true);
+    private Task RejectAsync() => ReviewAsync(false);
+    private async Task ReviewAsync(bool approve) { if (_selected is null) return; try { _busy = true; var request = new ReviewAttendanceCorrectionRequest { Id = _selected.Id, RowVersion = _selected.RowVersion, SourceFingerprint = _selected.SourceFingerprint, Note = _reviewNote }; if (approve) await CorrectionService.ApproveAsync(request); else await CorrectionService.RejectAsync(request); Show(approve ? "出勤更正申請已核准。" : "出勤更正申請已駁回。", MessageIntent.Success); _selected = null; await LoadAsync(); } catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException or ConcurrencyConflictException) { Show(ex.Message, MessageIntent.Error); } finally { _busy = false; } }
+    private void Show(string message, MessageIntent intent) { _message = message; _intent = intent; }
+    private static string ContextText(AttendanceCorrectionContextDto? value) => value is null ? "來源不存在" : $"上班 {ClockText(value.CurrentClockIn)}／下班 {ClockText(value.CurrentClockOut)}";
+    private static string ProposalText(AttendanceCorrectionRequestDto value) => $"上班 {ClockText(value.ProposedClockInAt)}／下班 {ClockText(value.ProposedClockOutAt)}";
+    private static string ClockText(DateTime? value) => value?.ToString("MM/dd HH:mm") ?? "—";
+    private static string TimeText(TimeOnly? value) => value?.ToString("HH:mm") ?? "—";
+    private static string YesNo(bool value) => value ? "是" : "否";
+    private static string TypeText(AttendanceCorrectionRequestType type) => type switch { AttendanceCorrectionRequestType.MissingClockIn => "補上班卡", AttendanceCorrectionRequestType.MissingClockOut => "補下班卡", AttendanceCorrectionRequestType.MissingBoth => "補上下班卡", AttendanceCorrectionRequestType.ClockInCorrection => "上班時間更正", AttendanceCorrectionRequestType.ClockOutCorrection => "下班時間更正", AttendanceCorrectionRequestType.LateExplanation => "遲到原因說明", AttendanceCorrectionRequestType.EarlyLeaveExplanation => "早退原因說明", _ => type.ToString() };
+    private static string ReasonText(AttendanceCorrectionReason reason) => reason switch { AttendanceCorrectionReason.ForgotPunch => "忘記打卡", AttendanceCorrectionReason.DeviceFailure => "設備異常", AttendanceCorrectionReason.OfficialBusiness => "公務外出", AttendanceCorrectionReason.WorkRequirement => "工作需要", AttendanceCorrectionReason.TrafficIncident => "交通事故", AttendanceCorrectionReason.PersonalReason => "個人原因", AttendanceCorrectionReason.IncorrectRecognizedTime => "認列時間不正確", _ => "其他" };
+    private static string StatusText(AttendanceCorrectionRequestStatus status) => status switch { AttendanceCorrectionRequestStatus.Draft => "草稿", AttendanceCorrectionRequestStatus.Submitted => "待審核", AttendanceCorrectionRequestStatus.Approved => "已核准", AttendanceCorrectionRequestStatus.Rejected => "已駁回", AttendanceCorrectionRequestStatus.Withdrawn => "已撤回", _ => status.ToString() };
+}

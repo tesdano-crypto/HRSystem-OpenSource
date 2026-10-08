@@ -1,0 +1,183 @@
+{
+  "schemaVersion": "1.0",
+  "calendarYear": 2027,
+  "source": {
+    "authority": "行政院人事行政總處",
+    "title": "中華民國一百一十六年政府行政機關辦公日曆表",
+    "publicationDate": "2026-05-21",
+    "url": "https://www.dgpa.gov.tw/information?pid=12982&uid=41",
+    "documentIdentifier": "行政院院授人培字第1153026132號函",
+    "contentSha256": "5c63b9d5b5dfe2ce91a29e607bed2597d0bf811be02accc15920c5dac2b730a1"
+  },
+  "manifestVersion": "2027.1",
+  "dates": [
+    {
+      "date": "2027-01-01",
+      "dayType": "NationalHoliday",
+      "name": "中華民國開國紀念日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-02-04",
+      "dayType": "NationalHoliday",
+      "name": "除夕及春節連續假期（除夕前一日）",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-02-05",
+      "dayType": "NationalHoliday",
+      "name": "除夕",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-02-06",
+      "dayType": "NationalHoliday",
+      "name": "春節（農曆正月初一）",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-02-07",
+      "dayType": "NationalHoliday",
+      "name": "春節（農曆正月初二）",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-02-08",
+      "dayType": "NationalHoliday",
+      "name": "春節（農曆正月初三）",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-02-09",
+      "dayType": "SubstituteHoliday",
+      "name": "春節補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-02-10",
+      "dayType": "SubstituteHoliday",
+      "name": "春節補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-02-28",
+      "dayType": "NationalHoliday",
+      "name": "和平紀念日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-03-01",
+      "dayType": "SubstituteHoliday",
+      "name": "和平紀念日補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-04-04",
+      "dayType": "NationalHoliday",
+      "name": "兒童節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-04-05",
+      "dayType": "NationalHoliday",
+      "name": "清明節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-04-06",
+      "dayType": "SubstituteHoliday",
+      "name": "兒童節補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-04-30",
+      "dayType": "SubstituteHoliday",
+      "name": "勞動節補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-05-01",
+      "dayType": "NationalHoliday",
+      "name": "勞動節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-06-09",
+      "dayType": "NationalHoliday",
+      "name": "端午節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-09-15",
+      "dayType": "NationalHoliday",
+      "name": "中秋節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-09-28",
+      "dayType": "NationalHoliday",
+      "name": "教師節",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-10-10",
+      "dayType": "NationalHoliday",
+      "name": "國慶日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-10-11",
+      "dayType": "SubstituteHoliday",
+      "name": "國慶日補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-10-25",
+      "dayType": "NationalHoliday",
+      "name": "臺灣光復暨金門古寧頭大捷紀念日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-12-24",
+      "dayType": "SubstituteHoliday",
+      "name": "行憲紀念日補假",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-12-25",
+      "dayType": "NationalHoliday",
+      "name": "行憲紀念日",
+      "sourceNote": null,
+      "sourceReference": null
+    },
+    {
+      "date": "2027-12-31",
+      "dayType": "SubstituteHoliday",
+      "name": "117 年中華民國開國紀念日補假",
+      "sourceNote": null,
+      "sourceReference": null
+    }
+  ]
+}

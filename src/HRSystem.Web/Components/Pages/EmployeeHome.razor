@@ -1,0 +1,163 @@
+@page "/my"
+@attribute [Authorize(Policy = PolicyNames.EmployeeSelfService)]
+@using HRSystem.Application.Dashboard
+@using HRSystem.Application.Attendance
+@inject IEmployeeDashboardService DashboardService
+@inject ILogger<EmployeeHome> Logger
+
+<PageTitle>我的首頁</PageTitle>
+<PageHeader Title="我的首頁" Description="集中查看今天出勤、待處理事項與近期申請狀態。" />
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_dashboard is { HasEmployeeBinding: false })
+{
+    <EmptyState Title="目前帳號尚未綁定員工資料" Description="目前帳號尚未綁定員工資料。管理資料請使用既有管理頁面。" />
+}
+else if (_dashboard is not null)
+{
+    <div class="employee-dashboard" data-employee-dashboard>
+        <section class="employee-dashboard-hero">
+            <div><span>@_dashboard.Today.ToString("yyyy/MM/dd") @Weekday(_dashboard.Today)</span><h2>@(_dashboard.EmployeeName) 您好</h2></div>
+            <div class="quick-actions" aria-label="快速操作">
+                @foreach (var action in _dashboard.QuickActions)
+                {
+                    <a href="@action.Url">@action.Text</a>
+                }
+            </div>
+        </section>
+
+        <section class="dashboard-card today-card" aria-label="今日出勤">
+            <h2>今日出勤</h2>
+            @if (_dashboard.TodayAttendance is null)
+            {
+                <p class="empty-copy">今日尚無已產生的出勤結果。</p>
+            }
+            else
+            {
+                var today = _dashboard.TodayAttendance;
+                <div class="today-grid">
+                    <div><span>班別</span><strong>@today.Schedule</strong></div>
+                    <div><span>上班</span><strong>@Clock(today.ClockIn)</strong></div>
+                    <div><span>下班</span><strong>@ClockOut(today)</strong></div>
+                    <div><span>狀態</span><strong class="@(today.IsAnomaly ? "danger-text" : null)">@today.Status</strong></div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(today.LeaveStatus)) { <p>@today.LeaveStatus</p> }
+                @if (!string.IsNullOrWhiteSpace(today.OvertimeStatus)) { <p>@today.OvertimeStatus</p> }
+                <a href="@today.DetailUrl">查看今日明細</a>
+            }
+            @foreach (var status in _dashboard.TodayStatuses)
+            {
+                <p><strong>@status.Category：</strong><a href="@status.Url">@status.Text</a></p>
+            }
+        </section>
+
+        <div class="dashboard-two-column">
+            <TaskList Title="需要我處理" Items="_dashboard.NeedsAction" EmptyText="目前沒有需要您處理的事項。" />
+            <TaskList Title="等待審核／確認" Items="_dashboard.WaitingReview" EmptyText="目前沒有等待處理的申請。" />
+        </div>
+
+        <section class="dashboard-card" aria-label="本月摘要">
+            <h2>本月摘要</h2>
+            <p><a href="/my-attendance?nonWorking=true">@NonWorkingDayAttendanceDisplay.Queue：@_dashboard.NonWorkingDayPendingCount</a></p>
+            <div class="summary-grid">
+                <div><strong>@_dashboard.MonthSummary.Workdays</strong><span>工作日</span></div>
+                <div><strong>@_dashboard.MonthSummary.NormalDays</strong><span>正常</span></div>
+                <div><strong>@_dashboard.MonthSummary.AnomalyDays</strong><span>異常</span></div>
+                <div><strong>@_dashboard.MonthSummary.LateDays</strong><span>遲到</span></div>
+                <div><strong>@_dashboard.MonthSummary.EarlyLeaveDays</strong><span>早退</span></div>
+                <div><strong>@_dashboard.MonthSummary.MissingPunchDays</strong><span>缺卡</span></div>
+            </div>
+            <div class="workflow-summary">
+                <span>加班草稿 @_dashboard.WorkflowSummary.OvertimeDraft</span>
+                <span>加班待審 @_dashboard.WorkflowSummary.OvertimeSubmitted</span>
+                <span>加班已核准 @_dashboard.WorkflowSummary.OvertimeApproved</span>
+                <span>待認列 @_dashboard.WorkflowSummary.OvertimeApprovedPendingRecognition</span>
+                <span>需重新確認 @_dashboard.WorkflowSummary.OvertimeNeedsReview</span>
+                <span>已認列 @_dashboard.WorkflowSummary.OvertimeRecognizedMinutes 分鐘</span>
+                <span>更正草稿 @_dashboard.WorkflowSummary.CorrectionDraft</span>
+                <span>更正待審 @_dashboard.WorkflowSummary.CorrectionSubmitted</span>
+                <span>更正駁回 @_dashboard.WorkflowSummary.CorrectionRejected</span>
+                <span>請假待處理 @_dashboard.WorkflowSummary.LeaveDraftOrRejected</span>
+                <span>請假待簽 @_dashboard.WorkflowSummary.LeaveSubmitted</span>
+                <span>本月核准請假 @_dashboard.WorkflowSummary.LeaveApprovedThisMonth</span>
+            </div>
+        </section>
+
+        <section class="dashboard-card" aria-label="最近七個工作日出勤">
+            <h2>最近 7 個工作日</h2>
+            @if (_dashboard.RecentAttendance.Count == 0)
+            {
+                <p class="empty-copy">目前沒有近期出勤結果。</p>
+            }
+            else
+            {
+                <div class="compact-list">
+                    @foreach (var item in _dashboard.RecentAttendance)
+                    {
+                        <a class="compact-row" href="@($"/my-attendance/{item.DailyAttendanceResultId:D}")">
+                            <span>@item.WorkDate.ToString("yyyy/MM/dd")</span>
+                            <span>@AttendanceText(item)</span>
+                            <strong class="@(item.IsAnomaly ? "danger-text" : null)">@StatusText(item)</strong>
+                        </a>
+                    }
+                </div>
+            }
+        </section>
+
+        @if (_dashboard.Upcoming.Count > 0)
+        {
+            <section class="dashboard-card" aria-label="未來七日">
+                <h2>未來 7 日</h2>
+                <div class="compact-list">
+                    @foreach (var item in _dashboard.Upcoming)
+                    {
+                        <a class="compact-row" href="@item.Url"><span>@item.Date.ToString("yyyy/MM/dd")</span><span>@item.Title</span><strong>@item.Status</strong></a>
+                    }
+                </div>
+            </section>
+        }
+    </div>
+}
+
+@code {
+    private EmployeeDashboardDto? _dashboard;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _dashboard = await DashboardService.GetAsync(); }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load employee dashboard.");
+            _error = "個人首頁暫時無法載入，請稍後再試。";
+        }
+        finally { _loading = false; }
+    }
+
+    private static string Clock(DateTime? value) => value?.ToString("HH:mm") ?? "—";
+    private static string ClockOut(EmployeeDashboardTodayDto value) =>
+        value.ClockOut?.ToString("HH:mm") ?? (value.Status == "非工作日" ? "—" :
+            value.IsInProgress ? "尚未下班" : "尚未有下班紀錄");
+    private static string AttendanceText(MyAttendanceRowDto item) =>
+        $"{Clock(item.EffectiveClockInLocalTime)}–{Clock(item.EffectiveClockOutLocalTime)}";
+    private static string StatusText(MyAttendanceRowDto item) =>
+        item.IsEmploymentSuspended ? "留職停薪" : item.IsAttendanceExempted ? "出勤豁免" :
+        item.LeaveCoverageStatus == "Full" ? "全日請假" : item.MissingClockIn && item.MissingClockOut ? "上下班缺卡" :
+        item.MissingClockIn ? "上班缺卡" : item.MissingClockOut ? "下班缺卡" :
+        item.IsLate ? $"遲到 {item.LateMinutes} 分鐘" : item.IsEarlyLeave ? $"早退 {item.EarlyLeaveMinutes} 分鐘" :
+        item.IsAnomaly ? "異常" : "正常";
+    private static string Weekday(DateOnly date) => date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "星期一", DayOfWeek.Tuesday => "星期二",
+        DayOfWeek.Wednesday => "星期三", DayOfWeek.Thursday => "星期四",
+        DayOfWeek.Friday => "星期五", DayOfWeek.Saturday => "星期六", _ => "星期日"
+    };
+}

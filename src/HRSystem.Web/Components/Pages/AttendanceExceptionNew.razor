@@ -1,0 +1,22 @@
+@page "/attendance-exceptions/new"
+@attribute [Authorize(Policy = PolicyNames.AttendanceExceptionSelfService)]
+@using HRSystem.Application.AttendanceExceptions
+@using HRSystem.Domain.AttendanceExceptions
+@inject IAttendanceExceptionService Service
+@inject IToastService Toast
+@inject NavigationManager Navigation
+
+<PageTitle>新增天然災害出勤豁免</PageTitle>
+<PageHeader Title="新增天然災害出勤豁免" Description="本申請不是請假；核准後只豁免指定日期與區間的出勤義務。" />
+@if(!string.IsNullOrWhiteSpace(_error)){<FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>}
+<section class="editor-panel"><EditForm Model="_form" OnValidSubmit="SaveAsync"><DataAnnotationsValidator/><ValidationSummary/><div class="form-grid">
+<div class="field full"><label>員工</label><InputSelect @bind-Value="_form.EmployeeId">@foreach(var e in _employees){<option value="@e.Id">@e.EmployeeNumber－@e.EmployeeName</option>}</InputSelect></div>
+<div class="field"><label>出勤日期</label><InputDate @bind-Value="_form.WorkDate"/></div>
+<div class="field"><label>天然災害原因</label><InputSelect @bind-Value="_form.ReasonType"><option value="@NaturalDisasterReasonType.WorkplaceClosure">工作所在地停止辦公</option><option value="@NaturalDisasterReasonType.ResidenceClosure">居住地停止辦公</option><option value="@NaturalDisasterReasonType.CommuteRouteClosure">正常通勤必經地區停止辦公</option><option value="@NaturalDisasterReasonType.TransportationBlocked">天然災害造成交通阻塞</option></InputSelect></div>
+<div class="field"><label>影響方式</label><InputSelect @bind-Value="_form.ImpactType" @bind-Value:after="ImpactChanged"><option value="@AttendanceExceptionImpactType.FullDay">全日豁免</option><option value="@AttendanceExceptionImpactType.LateArrival">延後到班</option><option value="@AttendanceExceptionImpactType.EarlyDeparture">提前離開</option></InputSelect></div>
+@if(_form.ImpactType==AttendanceExceptionImpactType.LateArrival){<div class="field"><label>豁免至</label><input type="time" @bind="_form.ExemptToTime"/></div>}
+@if(_form.ImpactType==AttendanceExceptionImpactType.EarlyDeparture){<div class="field"><label>自此時間起豁免</label><input type="time" @bind="_form.ExemptFromTime"/></div>}
+<div class="field full"><label>補充說明（選填）</label><InputTextArea @bind-Value="_form.Reason"/></div></div>
+<FluentMessageBar Intent="@MessageIntent.Info">核准後不會產生請假時數，也不會建立請假區間。</FluentMessageBar>
+<div class="form-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="@(()=>Navigation.NavigateTo("/attendance-exceptions"))">取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="_busy">儲存草稿</FluentButton></div></EditForm></section>
+@code{private readonly CreateAttendanceExceptionDraftRequest _form=new(){WorkDate=DateOnly.FromDateTime(DateTime.Today)};private IReadOnlyList<AttendanceExceptionEmployeeOptionDto> _employees=[];private bool _busy;private string? _error;protected override async Task OnInitializedAsync(){try{_employees=await Service.GetEmployeeOptionsAsync();_form.EmployeeId=_employees.FirstOrDefault()?.Id;}catch(Exception ex){_error=ex.Message;}}private void ImpactChanged(){if(_form.ImpactType!=AttendanceExceptionImpactType.LateArrival)_form.ExemptToTime=null;if(_form.ImpactType!=AttendanceExceptionImpactType.EarlyDeparture)_form.ExemptFromTime=null;}private async Task SaveAsync(){if(_busy)return;_busy=true;try{var item=await Service.CreateDraftAsync(_form);Toast.ShowSuccess("出勤豁免草稿已儲存。");Navigation.NavigateTo($"/attendance-exceptions/{item.Id}");}catch(Exception ex){_error=ex.Message;Toast.ShowError(_error);}finally{_busy=false;}}}

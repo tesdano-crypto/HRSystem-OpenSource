@@ -1,0 +1,60 @@
+@page "/parental-leave"
+@attribute [Authorize(Policy = PolicyNames.ParentalLeaveSelfService)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@using HRSystem.Application.ParentalLeave
+@using HRSystem.Domain.ParentalLeave
+@inject IParentalLeaveService ParentalLeaveService
+
+<PageTitle>我的育嬰留職停薪</PageTitle>
+<PageHeader Title="我的育嬰留職停薪" Description="育嬰留職停薪採專用申請流程，不會計入一般請假時數。" />
+
+<div class="toolbar">
+    <div class="field"><label for="parental-status">狀態</label><InputSelect id="parental-status" @bind-Value="_query.Status"><option value="">全部</option>@foreach (var status in Enum.GetValues<ParentalLeaveStatus>()){<option value="@status">@StatusText(status)</option>}</InputSelect></div>
+    <FluentButton Appearance="@Appearance.Accent" OnClick="LoadAsync">查詢</FluentButton>
+    <a class="button-link" href="/parental-leave/new">新增申請</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_error)) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+else if (_loading) { <LoadingState /> }
+else if (_result is null || _result.Items.Count == 0) { <EmptyState Title="尚無育嬰留停申請" Description="可由新增申請開始。" /> }
+else
+{
+    <div class="grid-shell"><table class="data-table"><thead><tr><th>單號</th><th>期間</th><th>天數</th><th>類型</th><th>狀態</th></tr></thead><tbody>
+        @foreach (var item in _result.Items)
+        {
+            <tr><td><a href="@($"/parental-leave/{item.Id}")">@item.RequestNumber</a></td><td>@item.StartDate ～ @item.EndDate</td><td>@item.CalendarDayCount</td><td>@TypeText(item.ApplicationType)</td><td>@StatusText(item.EffectiveStatus)</td></tr>
+        }
+    </tbody></table></div>
+}
+
+@code {
+    private readonly ParentalLeaveQuery _query = new();
+    private PagedResult<ParentalLeaveRequestDto>? _result;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try { _result = await ParentalLeaveService.GetMyRequestsAsync(_query); }
+        catch (Exception ex) { _error = Friendly(ex); }
+        finally { _loading = false; }
+    }
+
+    private static string StatusText(ParentalLeaveStatus value) => value switch
+    {
+        ParentalLeaveStatus.Draft => "草稿", ParentalLeaveStatus.Submitted => "待核准",
+        ParentalLeaveStatus.Approved => "已核准", ParentalLeaveStatus.Rejected => "已駁回",
+        ParentalLeaveStatus.Withdrawn => "已撤回", ParentalLeaveStatus.CancellationRequested => "取消申請中",
+        ParentalLeaveStatus.Cancelled => "已取消", ParentalLeaveStatus.Completed => "已結束", _ => value.ToString()
+    };
+    private static string TypeText(ParentalLeaveApplicationType value) => value switch
+    {
+        ParentalLeaveApplicationType.Standard => "一般期間（至少 6 個月）",
+        ParentalLeaveApplicationType.ShortTerm30DaysOrMore => "30 日以上、未滿 6 個月",
+        ParentalLeaveApplicationType.DailyUnder30Days => "未滿 30 日按日申請", _ => value.ToString()
+    };
+    private static string Friendly(Exception ex) => ex is ApplicationValidationException or ForbiddenAccessException ? ex.Message : "讀取育嬰留停申請時發生錯誤。";
+}

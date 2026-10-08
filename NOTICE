@@ -1,0 +1,25 @@
+HRSystem
+
+This project's original code is licensed under the Apache License, Version 2.0.
+This notice is informational and does not modify the license terms.
+
+Third-party dependencies retain their own copyrights and license terms. The
+package/version inventory and redistribution review are in
+ docs/dependency-license-review.md
+ docs/dependency-license-metadata.json
+These files are not a substitute for applicable package license and notice files
+when distributing binaries. In particular, Microsoft.Data.SqlClient.SNI.runtime
+is subject to separate Microsoft license terms.
+
+Calendar data attribution
+The calendar manifests in data/company-calendar are transformed from government
+office calendar data published by the Directorate-General of Personnel
+Administration, Executive Yuan (DGPA). Each manifest retains the source title,
+document identifier, publication date, URL and source-content hash.
+Sources:
+ https://www.dgpa.gov.tw/information?pid=12573&uid=41
+ https://www.dgpa.gov.tw/information?pid=12982&uid=41
+Reuse declaration:
+ https://www.dgpa.gov.tw/archive?uid=75
+The JSON representation is an application adaptation; no agency endorsement is
+claimed. Calendar data is not relicensed by the project's Apache-2.0 license.

@@ -1,0 +1,194 @@
+@page "/admin/line-bindings"
+@attribute [Authorize(Policy = PolicyNames.ApprovalAct)]
+@using HRSystem.Application.Approvals
+@using HRSystem.Application.Common.Exceptions
+@inject ILineUserBindingService Bindings
+@inject IToastService Toast
+
+<PageTitle>LINE 私人帳號｜<OrganizationTitle /></PageTitle>
+<PageHeader Title="LINE 私人帳號" Description="以一次性配對碼安全綁定 Owner 的 LINE 私人聊天室。" />
+
+<FluentMessageBar Intent="@MessageIntent.Info">
+    配對碼只能傳送給「已設定的 LINE 助理」私人聊天室；群組與聊天室房間一律拒絕。
+</FluentMessageBar>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+@if (_pairing is not null)
+{
+    <section class="editor-panel" aria-label="LINE 配對碼">
+        <h2>等待驗證</h2>
+        <p>請由指定 Owner 在已設定的 LINE 助理的私人聊天室傳送：</p>
+        <code>@_pairing.PairingCommand</code>
+        <p>有效期限：@TaipeiTime.Format(_pairing.ExpiresAtUtc)</p>
+        <p>配對碼只顯示本次；系統僅保存安全雜湊。</p>
+    </section>
+}
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_items.Count == 0)
+{
+    <EmptyState Title="沒有可配對的 Owner 帳號" Description="請先確認已啟用的帳號具有老闆角色。" />
+}
+else
+{
+    <div class="grid-shell">
+        <table class="data-table">
+            <thead><tr><th>HRSystem 使用者</th><th>員工</th><th>角色</th><th>狀態</th><th>驗證／解除時間</th><th>LINE 私人帳號</th><th>操作</th></tr></thead>
+            <tbody>
+            @foreach (var item in _items)
+            {
+                <tr>
+                    <td>@item.UserName</td>
+                    <td>@(item.EmployeeNumber is null ? "—" : $"{item.EmployeeNumber} — {item.EmployeeName}")</td>
+                    <td>@string.Join("、", item.Roles.Select(SecurityDisplayCatalog.RoleName))</td>
+                    <td>@StatusText(item.Status)</td>
+                    <td>@StatusTime(item)</td>
+                    <td>@(item.MaskedLineIdentifier ?? "—")</td>
+                    <td><div class="row-actions">
+                        @if (item.CanManage && item.Status is LinePairingStatus.Unbound or LinePairingStatus.Revoked)
+                        {
+                            <FluentButton Disabled="_busy" OnClick="@(() => CreateAsync(item, false))">建立配對碼</FluentButton>
+                        }
+                        @if (item.CanManage && item.Status == LinePairingStatus.Verified)
+                        {
+                            <FluentButton Disabled="_busy" OnClick="@(() => BeginReplace(item))">更換綁定</FluentButton>
+                            <FluentButton Disabled="_busy" OnClick="@(() => BeginRevoke(item))">解除綁定</FluentButton>
+                            <FluentButton Disabled="@(_busy || !item.TestNotificationAvailable)" OnClick="@(() => SendTestAsync(item))">傳送測試通知</FluentButton>
+                        }
+                        @if (item.CanManage && item.Status == LinePairingStatus.Pending)
+                        {
+                            <FluentButton Disabled="_busy" OnClick="@(() => CreateAsync(item, false))">重新建立配對碼</FluentButton>
+                        }
+                    </div></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (_actionItem is not null)
+{
+    <section class="editor-panel">
+        <h2>@(_action == "replace" ? "更換 LINE 私人帳號" : "解除 LINE 私人帳號")</h2>
+        <div class="field"><label>原因</label><InputTextArea @bind-Value="_reason" @oninput="OnReasonInput" maxlength="1000" /></div>
+        <div class="form-actions">
+            <FluentButton Appearance="@Appearance.Stealth" OnClick="CancelAction">取消</FluentButton>
+            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="ConfirmActionAsync">確認</FluentButton>
+        </div>
+    </section>
+}
+
+@code {
+    private IReadOnlyList<LinePairingStatusDto> _items = [];
+    private LinePairingStatusDto? _actionItem;
+    private CreateLinePairingResult? _pairing;
+    private string? _action;
+    private string? _reason;
+    private string? _error;
+    private bool _loading = true;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try { _items = await Bindings.GetStatusesAsync(); }
+        catch (Exception ex) { _error = Friendly(ex); }
+        finally { _loading = false; }
+    }
+
+    private async Task CreateAsync(LinePairingStatusDto item, bool replace)
+    {
+        if (_busy) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            _pairing = await Bindings.CreatePairingRequestAsync(new()
+            {
+                HrSystemUserId = item.UserId,
+                ReplaceExistingBinding = replace,
+                ReplacementReason = replace ? _reason : null
+            });
+            _actionItem = null;
+            _action = null;
+            _reason = null;
+            await LoadAsync();
+            Toast.ShowSuccess("LINE 私人帳號配對碼已建立。");
+        }
+        catch (Exception ex) { _error = Friendly(ex); Toast.ShowError(_error); }
+        finally { _busy = false; }
+    }
+
+    private void BeginReplace(LinePairingStatusDto item)
+    { _actionItem = item; _action = "replace"; _reason = null; }
+
+    private void BeginRevoke(LinePairingStatusDto item)
+    { _actionItem = item; _action = "revoke"; _reason = null; }
+
+    private void CancelAction()
+    { _actionItem = null; _action = null; _reason = null; }
+
+    private void OnReasonInput(ChangeEventArgs args) =>
+        _reason = args.Value?.ToString();
+
+    private async Task ConfirmActionAsync()
+    {
+        if (_actionItem is null || string.IsNullOrWhiteSpace(_reason))
+        { _error = "原因為必填欄位。"; return; }
+        if (_action == "replace")
+        { await CreateAsync(_actionItem, true); return; }
+        _busy = true;
+        try
+        {
+            await Bindings.RevokeAsync(new(_actionItem.UserId, _reason));
+            CancelAction();
+            await LoadAsync();
+            Toast.ShowSuccess("LINE 私人帳號已解除綁定。");
+        }
+        catch (Exception ex) { _error = Friendly(ex); Toast.ShowError(_error); }
+        finally { _busy = false; }
+    }
+
+    private async Task SendTestAsync(LinePairingStatusDto item)
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            await Bindings.SendTestNotificationAsync(item.UserId);
+            Toast.ShowSuccess("LINE 私人測試通知已送出。");
+        }
+        catch (Exception ex) { _error = Friendly(ex); Toast.ShowError(_error); }
+        finally { _busy = false; }
+    }
+
+    private static string StatusText(LinePairingStatus status) => status switch
+    {
+        LinePairingStatus.Pending => "等待驗證",
+        LinePairingStatus.Verified => "已驗證",
+        LinePairingStatus.Revoked => "已解除",
+        _ => "尚未綁定"
+    };
+
+    private static string StatusTime(LinePairingStatusDto item) =>
+        item.Status == LinePairingStatus.Verified && item.VerifiedAtUtc.HasValue
+            ? TaipeiTime.Format(item.VerifiedAtUtc.Value)
+            : item.Status == LinePairingStatus.Revoked && item.RevokedAtUtc.HasValue
+                ? TaipeiTime.Format(item.RevokedAtUtc.Value)
+                : item.Status == LinePairingStatus.Pending && item.PendingExpiresAtUtc.HasValue
+                    ? $"到期 {TaipeiTime.Format(item.PendingExpiresAtUtc.Value)}"
+                    : "—";
+
+    private static string Friendly(Exception ex) => ex is ApplicationValidationException
+        or ForbiddenAccessException ? ex.Message : "LINE 私人帳號操作失敗，請稍後再試。";
+}

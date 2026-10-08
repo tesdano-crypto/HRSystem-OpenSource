@@ -1,0 +1,34 @@
+@page "/admin/annual-leave-entitlements/{EmployeeId:guid}"
+@attribute [Authorize(Policy = PolicyNames.LeaveManage)]
+@using HRSystem.Application.AnnualLeave
+@inject IAnnualLeaveService AnnualLeaveService
+
+<PageTitle>特休額度明細</PageTitle>
+<PageHeader Title="特休額度明細" Description="額度與申請配置的唯讀稽核檢視。" />
+@if (!string.IsNullOrWhiteSpace(_error)) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+else if (_balance is null) { <LoadingState /> }
+else
+{
+    <p><strong>@_balance.EmployeeNumber @_balance.EmployeeName</strong>｜聘用日 @_balance.HireDate｜可用 @_balance.AvailableMinutes 分鐘</p>
+    <div class="grid-shell"><table class="data-table"><thead><tr><th>期間</th><th>核發</th><th>遞延</th><th>保留</th><th>已用</th><th>結算</th><th>剩餘</th><th>狀態</th></tr></thead><tbody>
+    @foreach (var item in _balance.Entitlements)
+    {
+        <tr><td>@item.PeriodStart ～ @item.PeriodEnd</td><td>@item.GrantedMinutes</td><td>@item.CarriedInMinutes</td><td>@item.ReservedMinutes</td><td>@item.ConsumedMinutes</td><td>@item.SettledMinutes</td><td>@item.AvailableMinutes</td><td>@item.Status</td></tr>
+    }
+    </tbody></table></div>
+    <h2>請假配置</h2>
+    <div class="grid-shell"><table class="data-table"><thead><tr><th>申請單號</th><th>分鐘</th><th>狀態</th></tr></thead><tbody>
+    @foreach (var item in _balance.Allocations) { <tr><td>@item.RequestNumber</td><td>@item.AllocatedMinutes</td><td>@item.Status</td></tr> }
+    </tbody></table></div>
+}
+
+@code {
+    [Parameter] public Guid EmployeeId { get; set; }
+    private AnnualLeaveBalanceDto? _balance;
+    private string? _error;
+    protected override async Task OnParametersSetAsync()
+    {
+        try { _balance = await AnnualLeaveService.GetAdminBalanceAsync(EmployeeId); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+}

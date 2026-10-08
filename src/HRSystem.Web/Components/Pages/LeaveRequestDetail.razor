@@ -1,0 +1,181 @@
+@page "/leave-requests/{Id:guid}"
+@attribute [Authorize(Policy = PolicyNames.LeaveRequestSelfService)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.LeaveRequests
+@using HRSystem.Domain.LeaveRequests
+@using HRSystem.Domain.MasterData
+@inject ILeaveRequestService LeaveRequestService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IDialogService DialogService
+@inject IToastService ToastService
+@inject NavigationManager Navigation
+
+<PageTitle>請假申請明細</PageTitle>
+<PageHeader Title="請假申請明細" Description="顯示申請內容、審核與撤簽歷程；申請內容在送出後不可修改。" />
+
+@if (!string.IsNullOrWhiteSpace(_error)) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+else if (_item is null) { <LoadingState /> }
+else
+{
+    <section class="detail-card">
+        <div class="detail-heading"><h2>@_item.RequestNumber</h2><LeaveStatusBadge Status="_item.Status" /></div>
+        <dl class="profile-grid">
+            <div class="profile-item"><dt>申請員工</dt><dd>@_item.EmployeeNumber－@_item.EmployeeName</dd></div>
+            <div class="profile-item"><dt>部門</dt><dd>@_item.DepartmentName</dd></div>
+            <div class="profile-item"><dt>假別</dt><dd>@_item.LeaveTypeCode－@_item.LeaveTypeName</dd></div>
+            @if (_item.CalculationMode != LeaveCalculationMode.CalendarDays)
+            {
+                <div class="profile-item"><dt>請假時數</dt><dd>@_item.DurationHours.ToString("0.##") 小時</dd></div>
+                <div class="profile-item"><dt>開始時間</dt><dd>@TaipeiTime.Format(_item.StartAt)</dd></div>
+                <div class="profile-item"><dt>結束時間</dt><dd>@TaipeiTime.Format(_item.EndAt)</dd></div>
+            }
+            <div class="profile-item full"><dt>請假原因</dt><dd>@_item.Reason</dd></div>
+            @if (_item.CalculationMode == LeaveCalculationMode.CalendarDays)
+            {
+                <div class="profile-item"><dt>計算方式</dt><dd>連續曆日</dd></div>
+                <div class="profile-item"><dt>曆日期間</dt><dd>@_item.CalendarStartDate?.ToString("yyyy/MM/dd") ～ @_item.CalendarEndDate?.ToString("yyyy/MM/dd")</dd></div>
+                <div class="profile-item"><dt>連續曆日</dt><dd>@_item.CalendarDayCount 日</dd></div>
+                <div class="profile-item"><dt>出勤請假時數</dt><dd>@_item.DurationHours.ToString("0.##") 小時</dd></div>
+                @if (_item.PregnancyDurationCategory.HasValue)
+                {
+                    <div class="profile-item"><dt>妊娠期間</dt><dd>@PregnancyDurationText(_item.PregnancyDurationCategory.Value)</dd></div>
+                }
+                @if (string.Equals(_item.LeaveTypeCode, CalendarDayLeavePolicy.PregnancyBedRestCode, StringComparison.Ordinal))
+                {
+                    <div class="profile-item full"><dt>證明提醒</dt><dd>安胎休養假通常需要醫師證明；附件功能尚未提供，請依公司流程另行提供。</dd></div>
+                }
+            }
+            @if (!string.IsNullOrWhiteSpace(_item.CancellationReason))
+            {
+                <div class="profile-item full"><dt>撤簽原因</dt><dd>@_item.CancellationReason</dd></div>
+            }
+        </dl>
+        <div class="form-actions">
+            @if (_isOwner && _item.Status == LeaveRequestStatus.Draft)
+            {
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => Navigation.NavigateTo($"/leave-requests/{Id}/edit"))">編輯</FluentButton>
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="SubmitAsync">送出</FluentButton>
+            }
+            @if (_isOwner && _item.Status == LeaveRequestStatus.Submitted)
+            {
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="WithdrawAsync">撤回</FluentButton>
+            }
+            @if (_isOwner && _item.Status == LeaveRequestStatus.Approved)
+            {
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="ShowCancellation">申請撤簽</FluentButton>
+            }
+            @if (_isOwner && _item.Status == LeaveRequestStatus.CancellationRequested)
+            {
+                <span>撤簽申請中，主管處理前原請假仍然有效。</span>
+            }
+            @if (_isOwner && _item.Status is LeaveRequestStatus.Rejected or LeaveRequestStatus.Withdrawn)
+            {
+                <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="CopyAsync">複製為新草稿</FluentButton>
+            }
+            @if (_canApprove && !_isOwner && _item.Status is LeaveRequestStatus.Submitted or LeaveRequestStatus.CancellationRequested)
+            {
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="ApproveAsync">@(_item.Status == LeaveRequestStatus.CancellationRequested ? "核准撤簽" : "核准")</FluentButton>
+                <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="ShowReject">@(_item.Status == LeaveRequestStatus.CancellationRequested ? "駁回撤簽" : "退回")</FluentButton>
+            }
+        </div>
+    </section>
+
+    @if (_requestingCancellation)
+    {
+        <section class="editor-panel">
+            <h2>申請撤簽</h2>
+            <div class="field"><label for="cancellation-reason">撤簽原因（必填）</label><textarea id="cancellation-reason" maxlength="1000" @bind="_cancellationReason" @bind:event="oninput"></textarea></div>
+            <div class="form-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => _requestingCancellation = false)">取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="RequestCancellationAsync">確認申請撤簽</FluentButton></div>
+        </section>
+    }
+
+    @if (_rejecting)
+    {
+        <section class="editor-panel"><h2>@(_item.Status == LeaveRequestStatus.CancellationRequested ? "駁回撤簽" : "退回請假")</h2><div class="field"><label for="reject-comment">處理理由（必填）</label><textarea id="reject-comment" maxlength="1000" @bind="_rejectComment" @bind:event="oninput"></textarea></div><div class="form-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => _rejecting = false)">取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="RejectAsync">確認</FluentButton></div></section>
+    }
+
+    <section class="detail-card"><h2>審核歷程</h2>
+        @if (_item.ApprovalHistories.Count == 0) { <EmptyState Title="尚無審核歷程" Description="草稿送出後會在此顯示歷程。" /> }
+        else { <ol class="timeline">@foreach (var history in _item.ApprovalHistories){<li><strong>@ActionText(history.Action)</strong><span>@TaipeiTime.Format(history.ActionAtUtc)－@history.ActionByDisplayName</span>@if (!string.IsNullOrWhiteSpace(history.Comment)){<p>@history.Comment</p>}</li>}</ol> }
+    </section>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private LeaveRequestDto? _item;
+    private Guid? _currentEmployeeId;
+    private bool _canApprove;
+    private bool _busy;
+    private bool _rejecting;
+    private bool _requestingCancellation;
+    private string? _rejectComment;
+    private string? _cancellationReason;
+    private string? _error;
+    private bool _isOwner => _currentEmployeeId == _item?.EmployeeId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        _currentEmployeeId = Guid.TryParse(state.User.FindFirst(HRSystem.Infrastructure.Identity.ApplicationUserClaimsPrincipalFactory.EmployeeIdClaimType)?.Value, out var employeeId) ? employeeId : null;
+        _canApprove = RolePermissions.HasPermission(
+            state.User, PolicyNames.LeaveRequestApprove);
+        await LoadAsync();
+    }
+    private async Task LoadAsync() { _error = null; try { _item = await LeaveRequestService.GetRequestDetailAsync(Id); } catch (Exception ex) { _error = Friendly(ex); } }
+    private Task SubmitAsync() => ExecuteAsync(() => LeaveRequestService.SubmitAsync(ActionRequest()), "申請已送出。");
+    private async Task WithdrawAsync()
+    {
+        var dialog = await DialogService.ShowConfirmationAsync("確定撤回這筆已送出的請假申請？", "撤回", "取消", "撤回請假");
+        if (!(await dialog.Result).Cancelled) await ExecuteAsync(() => LeaveRequestService.WithdrawAsync(ActionRequest()), "申請已撤回。");
+    }
+    private async Task ApproveAsync()
+    {
+        var cancellation = _item!.Status == LeaveRequestStatus.CancellationRequested;
+        var dialog = await DialogService.ShowConfirmationAsync(cancellation ? "確定核准這筆撤簽申請？" : "確定核准這筆請假申請？", cancellation ? "核准撤簽" : "核准", "取消", cancellation ? "核准撤簽" : "核准請假");
+        if (!(await dialog.Result).Cancelled)
+        {
+            await ExecuteAsync(
+                () => cancellation ? LeaveRequestService.ApproveCancellationAsync(ActionRequest()) : LeaveRequestService.ApproveAsync(ActionRequest()),
+                cancellation ? "撤簽已核准，相關每日出勤已重新計算。" : "申請已核准。");
+        }
+    }
+    private void ShowReject() { _rejectComment = null; _rejecting = true; }
+    private Task RejectAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_rejectComment)) { _error = "處理理由為必填欄位。"; return Task.CompletedTask; }
+        var cancellation = _item!.Status == LeaveRequestStatus.CancellationRequested;
+        return ExecuteAsync(
+            () => cancellation
+                ? LeaveRequestService.RejectCancellationAsync(new RejectLeaveCancellationRequest { Id = Id, RowVersion = _item.RowVersion, Comment = _rejectComment })
+                : LeaveRequestService.RejectAsync(new RejectLeaveRequestRequest { Id = Id, RowVersion = _item.RowVersion, Comment = _rejectComment }),
+            cancellation ? "撤簽申請已駁回，原核准請假繼續有效。" : "申請已退回。");
+    }
+    private void ShowCancellation() { _cancellationReason = null; _requestingCancellation = true; }
+    private Task RequestCancellationAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_cancellationReason)) { _error = "撤簽原因為必填欄位。"; return Task.CompletedTask; }
+        return ExecuteAsync(() => LeaveRequestService.RequestCancellationAsync(new RequestLeaveCancellationRequest { Id = Id, RowVersion = _item!.RowVersion, Comment = _cancellationReason }), "撤簽申請已送出，主管處理前原請假仍然有效。");
+    }
+    private async Task CopyAsync()
+    {
+        var draft = await ExecuteAsync(() => LeaveRequestService.CopyToDraftAsync(Id), "已建立新的請假草稿。");
+        if (draft is not null) Navigation.NavigateTo($"/leave-requests/{draft.Id}/edit");
+    }
+    private LeaveRequestActionRequest ActionRequest() => new() { Id = Id, RowVersion = _item!.RowVersion };
+    private async Task<LeaveRequestDto?> ExecuteAsync(Func<Task<LeaveRequestDto>> action, string success)
+    {
+        if (_busy) return null; _busy = true; _error = null;
+        try { _item = await action(); _rejecting = false; _requestingCancellation = false; ToastService.ShowSuccess(success); return _item; }
+        catch (Exception ex) { _error = Friendly(ex); ToastService.ShowError(_error); return null; }
+        finally { _busy = false; }
+    }
+    private static string ActionText(ApprovalAction action) => action switch { ApprovalAction.Submitted => "已送出", ApprovalAction.Approved => "已核准", ApprovalAction.Rejected => "已退回", ApprovalAction.Withdrawn => "已撤回", ApprovalAction.CancellationRequested => "已申請撤簽", ApprovalAction.CancellationApproved => "撤簽已核准", ApprovalAction.CancellationRejected => "撤簽已駁回", _ => action.ToString() };
+    private static string PregnancyDurationText(PregnancyDurationCategory category) => category switch
+    {
+        PregnancyDurationCategory.ThreeMonthsOrMore => "妊娠滿三個月以上（28 日）",
+        PregnancyDurationCategory.TwoToUnderThreeMonths => "妊娠滿二個月、未滿三個月（7 日）",
+        PregnancyDurationCategory.UnderTwoMonths => "妊娠未滿二個月（5 日）",
+        _ => category.ToString()
+    };
+    private static string Friendly(Exception ex) => ex is ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException or HRSystem.Domain.Common.DomainValidationException ? ex.Message : "讀取或處理請假申請時發生錯誤。";
+}

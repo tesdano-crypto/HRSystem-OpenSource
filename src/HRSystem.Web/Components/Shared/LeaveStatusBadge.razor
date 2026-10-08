@@ -1,0 +1,27 @@
+@using HRSystem.Domain.LeaveRequests
+
+<FluentBadge Appearance="@BadgeAppearance">@Text</FluentBadge>
+
+@code {
+    [Parameter] public LeaveRequestStatus Status { get; set; }
+
+    private Appearance BadgeAppearance => Status switch
+    {
+        LeaveRequestStatus.Submitted => Appearance.Accent,
+        LeaveRequestStatus.Approved => Appearance.Accent,
+        LeaveRequestStatus.CancellationRequested => Appearance.Accent,
+        _ => Appearance.Neutral
+    };
+
+    private string Text => Status switch
+    {
+        LeaveRequestStatus.Draft => "草稿",
+        LeaveRequestStatus.Submitted => "待簽核",
+        LeaveRequestStatus.Approved => "已核准",
+        LeaveRequestStatus.Rejected => "已退回",
+        LeaveRequestStatus.Withdrawn => "已撤回",
+        LeaveRequestStatus.CancellationRequested => "撤簽申請中",
+        LeaveRequestStatus.Cancelled => "已撤簽",
+        _ => Status.ToString()
+    };
+}

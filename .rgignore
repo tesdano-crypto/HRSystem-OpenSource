@@ -1,0 +1,11 @@
+HrIntranet/
+**/bin/
+**/obj/
+.artifacts/
+TestResults/
+coverage/
+publish/
+Published/
+Staging/
+Backups/
+logs/

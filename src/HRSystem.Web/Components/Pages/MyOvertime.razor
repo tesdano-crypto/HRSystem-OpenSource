@@ -1,0 +1,209 @@
+@page "/my-overtime"
+@attribute [Authorize(Policy = PolicyNames.OvertimeSelfService)]
+@using HRSystem.Application.Overtime
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Domain.Overtime
+@using HRSystem.Application.Attendance
+@inject IOvertimeRequestService OvertimeService
+
+<PageTitle>我的加班申請</PageTitle>
+<PageHeader Title="我的加班申請" Description="建立、送出及追蹤自己的加班申請。" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar>
+}
+
+<section class="content-card">
+    <h2>新增加班草稿</h2>
+    @if (NonWorking) { <p>@NonWorkingDayAttendanceDisplay.ManualReview 請自行確認申請時段，儲存不會送審。</p> }
+    @if (_overlapId.HasValue) { <a href="@($"/my-overtime?requestId={_overlapId}")">查看既有加班申請</a> }
+    <EditForm Model="_draft" OnValidSubmit="CreateDraftAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <div class="form-grid">
+            <div class="field"><label>預計開始</label><InputDate Type="InputDateType.DateTimeLocal" @bind-Value="_draft.PlannedStartAt" /></div>
+            <div class="field"><label>預計結束</label><InputDate Type="InputDateType.DateTimeLocal" @bind-Value="_draft.PlannedEndAt" /></div>
+            <div class="field full-width"><label>加班原因</label><textarea @bind="_draft.Reason" @bind:event="oninput"></textarea></div>
+        </div>
+        <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" Type="ButtonType.Submit">儲存草稿</FluentButton>
+    </EditForm>
+</section>
+
+<section class="content-card">
+    <div class="toolbar">
+        <h2>我的申請</h2>
+        <InputSelect @bind-Value="_statusFilter" @bind-Value:after="LoadAsync">
+            <option value="">全部狀態</option>
+            @foreach (var status in Enum.GetValues<OvertimeRequestStatus>())
+            {
+                <option value="@status">@StatusText(status)</option>
+            }
+        </InputSelect>
+    </div>
+    @if (_busy)
+    {
+        <LoadingState />
+    }
+    else if (_items.Count == 0)
+    {
+        <EmptyState Title="目前沒有加班申請" Description="可先儲存草稿，再確認內容後送出。" />
+    }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th>日期</th><th>預計時段</th><th>核准分鐘</th><th>原因</th><th>狀態</th><th>實際認列</th><th>審核結果</th><th>操作</th></tr></thead>
+            <tbody>
+            @foreach (var item in _items)
+            {
+                <tr>
+                    <td>@item.OvertimeDate.ToString("yyyy/MM/dd")</td>
+                    <td>@item.PlannedStartAt.ToString("MM/dd HH:mm")–@item.PlannedEndAt.ToString("MM/dd HH:mm")</td>
+                    <td>@item.RequestedMinutes</td>
+                    <td>@item.Reason</td>
+                    <td>@StatusText(item.Status)</td>
+                    <td>@RecognitionText(item)</td>
+                    <td>@ReviewText(item)</td>
+                    <td>
+                        @if (item.Status == OvertimeRequestStatus.Draft)
+                        {
+                            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="@(() => SubmitAsync(item))">送出</FluentButton>
+                        }
+                        else if (item.Status == OvertimeRequestStatus.Submitted)
+                        {
+                            <FluentButton Appearance="@Appearance.Outline" Disabled="_busy" OnClick="@(() => WithdrawAsync(item))">撤回</FluentButton>
+                        }
+                        <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => ToggleHistory(item.Id))">歷程</FluentButton>
+                    </td>
+                </tr>
+                @if (_historyId == item.Id)
+                {
+                    <tr><td colspan="8">
+                        <ul>
+                        @foreach (var history in item.Histories)
+                        {
+                            <li>@history.OccurredAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm") — @HistoryText(history.Action) @history.Note</li>
+                        }
+                        </ul>
+                    </td></tr>
+                }
+            }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "nonWorking")]
+    [Parameter] public bool NonWorking { get; set; }
+    [SupplyParameterFromQuery(Name = "requestId")]
+    [Parameter] public Guid? RequestId { get; set; }
+    private Guid? _overlapId;
+    [SupplyParameterFromQuery(Name = "workDate")]
+    [Parameter] public DateOnly? PrefillWorkDate { get; set; }
+    [SupplyParameterFromQuery(Name = "start")]
+    [Parameter] public DateTime? PrefillStart { get; set; }
+    [SupplyParameterFromQuery(Name = "end")]
+    [Parameter] public DateTime? PrefillEnd { get; set; }
+
+    private CreateOvertimeDraftRequest _draft = NewDraft();
+    private List<OvertimeRequestDto> _items = [];
+    private OvertimeRequestStatus? _statusFilter;
+    private Guid? _historyId;
+    private bool _busy;
+    private string? _message;
+    private MessageIntent _intent = MessageIntent.Info;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    protected override void OnParametersSet()
+    {
+        if (RequestId.HasValue) _historyId = RequestId;
+        _draft.NonWorkingDayEvidenceDate = NonWorking ? PrefillWorkDate : null;
+        if (PrefillStart.HasValue && PrefillEnd.HasValue)
+        {
+            _draft.PlannedStartAt = DateTime.SpecifyKind(
+                PrefillStart.Value, DateTimeKind.Unspecified);
+            _draft.PlannedEndAt = DateTime.SpecifyKind(
+                PrefillEnd.Value, DateTimeKind.Unspecified);
+        }
+        else if (PrefillWorkDate.HasValue)
+        {
+            _draft.PlannedStartAt = DateTime.SpecifyKind(
+                PrefillWorkDate.Value.ToDateTime(new TimeOnly(17, 30)),
+                DateTimeKind.Unspecified);
+            _draft.PlannedEndAt = NonWorking ? _draft.PlannedStartAt : _draft.PlannedStartAt.AddHours(2);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _busy = true;
+            _items = (await OvertimeService.GetMyRequestsAsync(new()
+            {
+                Status = _statusFilter, RequestId = RequestId
+            })).ToList();
+        }
+        catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException)
+        {
+            Show(ex.Message, MessageIntent.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task CreateDraftAsync()
+    {
+        await RunAsync(async () =>
+        {
+            _draft.NonWorkingDayEvidenceDate = NonWorking ? PrefillWorkDate : null;
+            await OvertimeService.CreateDraftAsync(_draft);
+            _draft = NewDraft();
+            Show("加班草稿已儲存。", MessageIntent.Success);
+        });
+    }
+
+    private Task SubmitAsync(OvertimeRequestDto item) => RunAsync(async () =>
+    {
+        await OvertimeService.SubmitAsync(new() { Id = item.Id, RowVersion = item.RowVersion });
+        Show("加班申請已送出。", MessageIntent.Success);
+    });
+
+    private Task WithdrawAsync(OvertimeRequestDto item) => RunAsync(async () =>
+    {
+        await OvertimeService.WithdrawAsync(new() { Id = item.Id, RowVersion = item.RowVersion });
+        Show("加班申請已撤回。", MessageIntent.Success);
+    });
+
+    private async Task RunAsync(Func<Task> operation)
+    {
+        try { _busy = true; await operation(); await LoadAsync(); }
+        catch (OvertimeDraftOverlapException ex)
+        { _overlapId = ex.ExistingRequestId; Show(ex.Message, MessageIntent.Error); }
+        catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException or ConcurrencyConflictException)
+        { Show(ex.Message, MessageIntent.Error); }
+        finally { _busy = false; }
+    }
+
+    private void ToggleHistory(Guid id) => _historyId = _historyId == id ? null : id;
+    private void Show(string message, MessageIntent intent) { _message = message; _intent = intent; }
+    private static CreateOvertimeDraftRequest NewDraft()
+    {
+        var start = DateTime.SpecifyKind(DateTime.Today.AddHours(17.5), DateTimeKind.Unspecified);
+        return new() { PlannedStartAt = start, PlannedEndAt = start.AddHours(2) };
+    }
+    private static string StatusText(OvertimeRequestStatus status) => status switch
+    { OvertimeRequestStatus.Draft => "草稿", OvertimeRequestStatus.Submitted => "待審核", OvertimeRequestStatus.Approved => "已核准", OvertimeRequestStatus.Rejected => "已駁回", OvertimeRequestStatus.Withdrawn => "已撤回", _ => status.ToString() };
+    private static string HistoryText(OvertimeRequestHistoryAction action) => action switch
+    { OvertimeRequestHistoryAction.Created => "建立草稿", OvertimeRequestHistoryAction.Updated => "更新草稿", OvertimeRequestHistoryAction.Submitted => "送出", OvertimeRequestHistoryAction.Approved => "核准", OvertimeRequestHistoryAction.Rejected => "駁回", OvertimeRequestHistoryAction.Withdrawn => "撤回", _ => action.ToString() };
+    private static string ReviewText(OvertimeRequestDto item) => item.ReviewReason is null ? "—" : $"{item.ReviewReason} {item.ReviewNote}";
+    private static string RecognitionText(OvertimeRequestDto item) => item.Status != OvertimeRequestStatus.Approved ? "—" : item.Recognition switch
+    {
+        null => "待實際工時確認",
+        { Status: OvertimeRecognitionStatus.Confirmed, RecognizedMinutes: not null } value => $"實際認列 {value.RecognizedMinutes} 分鐘",
+        { Status: OvertimeRecognitionStatus.NeedsReview } => "出勤資料已變更，需重新確認",
+        { Status: OvertimeRecognitionStatus.Reopened } => "重新確認中",
+        _ => "待實際工時確認"
+    };
+}

@@ -1,0 +1,178 @@
+@page "/admin/payroll/employees/{EmployeeId:guid}"
+@attribute [Authorize(Policy = PolicyNames.PayrollView)]
+@using HRSystem.Application.Abstractions.Security
+@using HRSystem.Application.Payroll
+@using HRSystem.Domain.Payroll
+@inject IPayrollService Payroll
+@inject ICurrentUser CurrentUser
+
+<PageTitle>員工薪資設定明細</PageTitle>
+<PageHeader Title="員工薪資設定明細" Description="設定員工固定薪資、加給、勞健保投保資料及生效期間；歷史設定不會被覆寫。" />
+@if (!string.IsNullOrWhiteSpace(_message)) { <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar> }
+@if (_loading) { <LoadingState /> }
+else if (_detail is not null)
+{
+<section class="content-card"><h2>@_detail.Employee.EmployeeNumber — @_detail.Employee.EmployeeName</h2><p>@_detail.Employee.DepartmentName；目前方案 @(_detail.Employee.CurrentPlanName ?? "尚未設定")</p><p>依序確認固定薪資、加給、勞保、健保與各項生效期間。</p><p class="field-hint">固定薪資設定會依生效期間自動套用到後續薪資月份，不需要每月重新設定。</p></section>
+<section class="content-card">
+ <h2>薪資項目試算</h2><p>顯示已解析固定應發、出席補貼、請假扣薪、已確認的實際加班，以及勞保與健保員工負擔。</p>
+ <div class="form-grid"><div class="field"><label for="preview-year">年度</label><InputNumber id="preview-year" @bind-Value="_previewYear" /></div><div class="field"><label for="preview-month">月份</label><InputNumber id="preview-month" @bind-Value="_previewMonth" /></div></div>
+ <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="PreviewAsync">試算薪資項目</FluentButton>
+ @if (_preview is not null)
+ {
+  @if (_preview.ParticipationStatus == PayrollParticipationStatus.NonPayMonth)
+  {
+   <FluentMessageBar Intent="@MessageIntent.Info">本月不發薪；此設定不影響在職、打卡、請假或加班資料。</FluentMessageBar>
+  }
+  else
+  {
+  <p><strong>已解析固定應發小計（非應發總額）：@_preview.FixedEarningsSubtotal.ToString("N0")</strong></p>
+  <table class="data-table"><thead><tr><th>項目</th><th>完整月額</th><th>比例政策</th><th>計薪日數</th><th>比例</th><th>解析金額</th><th>狀態</th></tr></thead><tbody>
+  @foreach (var c in _preview.Components) { <tr><td>@PayrollDisplay.Component(c.Code,c.Name,_preview.PayrollPlanCode)</td><td>@Money(c.FullMonthlyAmount)</td><td>@PayrollDisplay.Proration(c.ProrationKind)</td><td>@(c.PayableDays?.ToString() ?? "—")</td><td>@Factor(c.ProrationFactor)</td><td>@Money(c.ResolvedAmount)</td><td>@PayrollDisplay.CalculationStatus(c.CalculationStatus)</td></tr> }
+  </tbody></table>
+  @foreach (var c in _preview.Components.Where(x => x.PeriodicAccrual is not null))
+  {
+   var accrual = c.PeriodicAccrual!;
+   <div class="content-card"><h3>週期固定薪資</h3><p>涵蓋 @accrual.CoveredFrom.ToString("yyyy/MM") ～ @accrual.CoveredTo.ToString("yyyy/MM")；週期 @accrual.CycleMonths 個月；週期開始月支付；本期合計 @Money(accrual.TotalAmount)。</p>
+   <table class="data-table"><thead><tr><th>涵蓋月份</th><th>每月固定薪資</th><th>狀態</th></tr></thead><tbody>@foreach(var month in accrual.Months){<tr><td>@month.CoveredMonth.ToString("yyyy/MM")</td><td>@Money(month.MonthlyFixedAmount)</td><td>@PayrollDisplay.CalculationStatus(month.CalculationStatus)</td></tr>}</tbody></table></div>
+  }
+  @foreach (var c in _preview.Components.Where(x => x.AttendanceAllowance is not null))
+  {
+   var a = c.AttendanceAllowance!;
+   <div class="content-card"><h3>出席補貼</h3><p>標準：@Money(a.FullMonthlyAmount)；任職比例上限：@Money(a.EmploymentProratedMaximum)；不符合日數：@a.IneligibleDays；最終：@Money(c.ResolvedAmount)</p>
+   @if(a.Evidence.Count>0){<details><summary>為什麼出席補貼被扣？</summary><ul>@foreach(var e in a.Evidence){<li>@e.WorkDate：@ReasonLabel(e.Reasons)</li>}</ul></details>}</div>
+  }
+  @foreach (var c in _preview.Components.Where(x => x.LeaveDeduction is not null))
+  {
+   var d = c.LeaveDeduction!;
+   <div class="content-card"><h3>請假扣薪</h3><p>完整月底薪基礎：@Money(d.FullMonthlyBaseAmount)；事假：@d.PersonalLeaveMinutes 分鐘／@Money(d.PersonalLeaveRawAmount)；普通病假：@d.SickLeaveMinutes 分鐘／@Money(d.SickLeaveRawAmount)；合計：@Money(c.ResolvedAmount)</p>
+   @if(d.UnsupportedLeaveMinutes>0){<p>另有 @d.UnsupportedLeaveMinutes 分鐘的假別政策待確認，未推算扣款。</p>}
+   @if(d.Evidence.Count>0){<details><summary>請假扣薪計算明細</summary><ul>@foreach(var e in d.Evidence){<li>@e.WorkDate：@e.LeaveTypeCode，@e.LeaveMinutes / @e.ScheduledMinutes 分鐘，比例 @(e.DeductionRate?.ToString("P0")??"政策待確認")，原始金額 @Money(e.RawAmount)</li>}</ul></details>}</div>
+  }
+  @if (_preview.OvertimePay is { } overtime)
+  {
+   <div class="content-card"><h3>加班費</h3>
+    <p>月薪基礎合計 @Money(overtime.MonthlyOvertimeBase) ÷ 30 ÷ 8 = 時薪基礎 @Money(overtime.HourlyBase)；認列 @overtime.TotalRecognizedMinutes 分鐘；合計 @Money(overtime.TotalOvertimePay)；@PayrollDisplay.CalculationStatus(overtime.CalculationStatus)</p>
+    <details open><summary>加班時薪基礎</summary><ul>@foreach(var item in overtime.IncludedComponents){<li>@PayrollDisplay.Component(item.Code, payrollPlanCode: _preview.PayrollPlanCode)：@Money(item.FullMonthlyAmount)</li>}<li>不納入：證書加給</li></ul></details>
+    <table class="data-table"><thead><tr><th>級距</th><th>分鐘</th><th>倍率</th><th>原始金額</th><th>金額</th></tr></thead><tbody>@foreach(var b in overtime.Buckets){<tr><td>@BucketLabel(b.Bucket)</td><td>@b.Minutes</td><td>×@b.Multiplier</td><td>@Money(b.RawPay)</td><td>@Money(b.FinalPay)</td></tr>}</tbody></table>
+    @if(overtime.Days.Count>0){<details><summary>依工作日查看</summary><ul>@foreach(var d in overtime.Days){<li>@d.WorkDate：認列 @d.RecognizedMinutes 分鐘；前 2 小時 @d.FirstTwoHoursMinutes、2 小時後 @d.AfterTwoHoursMinutes、8 小時後 @d.AfterEightHoursMinutes</li>}</ul></details>}
+   </div>
+  }
+  @if (_canViewInsurance)
+  {
+  @if (_preview.OccupationalInsurance is { } occupational)
+  {
+   <div class="content-card"><h3>職業災害保險資料確認</h3>
+    <p>災保投保薪資：@Money(occupational.MonthlyInsuredSalary)；@PayrollDisplay.CalculationStatus(occupational.CalculationStatus)</p>
+    <p>本月投保日數：@occupational.CoveredDays / 30；投保期間：@(occupational.EnrollmentFrom?.ToString() ?? "未設定") ～ @(occupational.EnrollmentTo?.ToString() ?? "持續")</p>
+    <p class="field-hint">依獨立災保設定確認投保期間；本階段不計算災保保費，不新增員工扣款。</p>
+   </div>
+  }
+  @foreach (var c in _preview.Components.Where(x => x.LaborInsurance is not null))
+  {
+   var insurance = c.LaborInsurance!;
+   <div class="content-card"><h3>勞保扣款</h3>
+    <p>投保狀態：@EnrollmentLabel(insurance.EnrollmentStatus)；勞保投保薪資：@Money(insurance.MonthlyLaborInsuredSalary)；政策：@(insurance.PolicyVersion ?? "政策待確認")；最終員工負擔：@Money(insurance.FinalEmployeeDeduction)；@PayrollDisplay.CalculationStatus(insurance.CalculationStatus)</p>
+    @if(insurance.EnrollmentFrom.HasValue){<p>投保期間：@insurance.EnrollmentFrom ～ @(insurance.EnrollmentTo?.ToString() ?? "持續")；政策期間：@(insurance.PolicyFrom?.ToString() ?? "—") ～ @(insurance.PolicyTo?.ToString() ?? "持續")</p>}
+    @if(insurance.Contributions.Count>0){<details><summary>勞保員工負擔明細</summary><table class="data-table"><thead><tr><th>險別</th><th>勞保投保薪資</th><th>費率</th><th>員工比例</th><th>原始金額</th><th>顯示金額</th></tr></thead><tbody>@foreach(var item in insurance.Contributions){<tr><td>@ContributionLabel(item.Kind)</td><td>@Money(insurance.MonthlyLaborInsuredSalary)</td><td>@item.Rate.ToString("P4")</td><td>@item.EmployeeShareRate.ToString("P2")</td><td>@Money(item.RawEmployeeAmount)</td><td>@Money(item.RoundedDisplayAmount)</td></tr>}</tbody></table><p>最終扣款以各項原始金額加總後統一取整，不重複逐項取整。</p></details>}
+   </div>
+  }
+  @foreach (var c in _preview.Components.Where(x => x.HealthInsurance is not null))
+  {
+   var health = c.HealthInsurance!;
+   <div class="content-card"><h3>健保扣款</h3>
+    <p>投保狀態：@HealthEnrollmentLabel(health.EnrollmentStatus)；月投保金額：@Money(health.MonthlyInsuredAmount)；實際眷屬：@(health.ActualDependentCount?.ToString() ?? "未設定")；計費眷屬：@(health.ChargeableDependentCount?.ToString() ?? "—")；計費單位：@(health.ContributionUnits?.ToString() ?? "—")</p>
+    <p>政策：@(health.PolicyVersion ?? "政策待確認")；一般保險費率：@(health.GeneralPremiumRate?.ToString("P4") ?? "—")；員工比例：@(health.EmployeeShareRate?.ToString("P2") ?? "—")；原始金額：@Money(health.RawEmployeeAmount)；最終員工負擔：@Money(health.FinalEmployeeDeduction)；@PayrollDisplay.CalculationStatus(health.CalculationStatus)</p>
+    @if(health.EnrollmentFrom.HasValue){<p>投保期間：@health.EnrollmentFrom ～ @(health.EnrollmentTo?.ToString() ?? "持續")；政策期間：@(health.PolicyFrom?.ToString() ?? "—") ～ @(health.PolicyTo?.ToString() ?? "持續")</p>}
+   </div>
+  }
+  }
+  }
+ }
+</section>
+<section class="content-card"><h2>發薪方式</h2>
+ <p class="field-hint">此設定只決定薪資在哪些月份發放，不影響員工的在職、打卡、請假或加班資料。</p>
+ @if (_canManage)
+ {
+  <div class="form-grid">
+   <div class="field"><label for="pay-cycle-type">發薪方式</label><InputSelect id="pay-cycle-type" @bind-Value="_payCycle.Type">@foreach(var type in Enum.GetValues<PayrollPayCycleType>()){<option value="@type">@PayrollDisplay.PayCycle(type)</option>}</InputSelect></div>
+   @if (_payCycle.Type == PayrollPayCycleType.SemiannualFixed)
+   {
+    <div class="field"><label for="pay-cycle-anchor">基準發薪月份</label><InputDate id="pay-cycle-anchor" @bind-Value="_payCycle.AnchorPayMonth" /></div>
+    <div class="field"><label for="pay-cycle-amount">每期固定金額</label><InputNumber id="pay-cycle-amount" @bind-Value="_payCycle.FixedPaymentAmount" /></div>
+   }
+   @if (_payCycle.Type == PayrollPayCycleType.PeriodicAccruedFixed)
+   {
+    <div class="field"><label for="pay-cycle-monthly-amount">每月固定薪資</label><InputNumber id="pay-cycle-monthly-amount" @bind-Value="_payCycle.MonthlyFixedAmount" /></div>
+    <div class="field"><label for="pay-cycle-months">每幾個月集中支付</label><InputNumber id="pay-cycle-months" @bind-Value="_payCycle.CycleMonths" /></div>
+    <div class="field"><label for="pay-cycle-anchor">基準支付月份</label><InputDate id="pay-cycle-anchor" @bind-Value="_payCycle.AnchorPayMonth" /></div>
+    <div class="field"><label for="pay-cycle-timing">支付時點</label><InputSelect id="pay-cycle-timing" @bind-Value="_payCycle.PaymentTiming"><option value="@PayrollPeriodicPaymentTiming.CycleStart">週期開始月支付</option></InputSelect></div>
+   }
+   <div class="field"><label for="pay-cycle-from">生效日（每月 1 日）</label><InputDate id="pay-cycle-from" @bind-Value="_payCycle.EffectiveFrom" /></div>
+   <div class="field"><label for="pay-cycle-to">結束日（月份最後一日）</label><InputDate id="pay-cycle-to" @bind-Value="_payCycle.EffectiveTo" /></div>
+   <div class="field"><label for="pay-cycle-reason">設定原因</label><InputText id="pay-cycle-reason" @bind-Value="_payCycle.Reason" /></div>
+  </div>
+  <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="PayCycleAsync">新增發薪方式</FluentButton>
+ }
+ @if ((_detail.PayCycles ?? []).Count == 0)
+ { <p>每月發薪（系統預設，未建立額外設定）</p> }
+ else
+ { <table class="data-table"><thead><tr><th>發薪方式</th><th>基準支付月份</th><th>每月固定薪資</th><th>週期</th><th>每期固定金額（舊版）</th><th>生效期間</th><th>狀態</th></tr></thead><tbody>@foreach(var item in _detail.PayCycles ?? []){<tr><td>@PayrollDisplay.PayCycle(item.Type)</td><td>@(item.AnchorPayMonth?.ToString("yyyy 年 MM 月") ?? "—")</td><td>@Money(item.MonthlyFixedAmount)</td><td>@(item.CycleMonths.HasValue?$"{item.CycleMonths} 個月／週期開始月支付":"—")</td><td>@Money(item.FixedPaymentAmount)</td><td>@item.EffectiveFrom ～ @(item.EffectiveTo?.ToString() ?? "持續")</td><td>@(item.IsActive?"有效":"停用")</td></tr>}</tbody></table> }
+</section>
+@if (_canViewInsurance)
+{
+<section class="content-card"><h2>健保投保設定</h2><p>月投保金額與眷屬人數為權威設定，不會由薪資、勞保或眷屬身分資料推算。正式費率政策尚待官方資料核定。</p>
+ @if (_canManageInsurance)
+ {
+ <p><a href="@($"/admin/insurance/{EmployeeId}")">前往保險投保設定，以預覽／確認流程維護</a></p>
+ }
+ @if(_detail.HealthInsuranceEnrollments.Count>0){<table class="data-table"><thead><tr><th>狀態</th><th>投保金額</th><th>眷屬人數</th><th>期間</th><th>設定狀態</th></tr></thead><tbody>@foreach(var item in _detail.HealthInsuranceEnrollments){<tr><td>@HealthEnrollmentLabel(item.Status)</td><td>@Money(item.MonthlyInsuredAmount)</td><td>@(item.DependentCount?.ToString() ?? "未設定")</td><td>@item.EffectiveFrom ～ @(item.EffectiveTo?.ToString() ?? "持續")</td><td>@(item.IsActive?"有效":"停用")</td></tr>}</tbody></table>}
+ <p>目前適用政策：@(_detail.HasApplicableHealthInsurancePolicy ? "可用" : "待官方核定")</p>
+</section>
+<section class="content-card"><h2>勞保投保設定</h2><p>投保薪資為權威設定，不會由底薪、獎金、請假扣款或加班費推算。正式費率政策尚待官方資料核定。</p>
+ @if (_canManageInsurance)
+ {
+ <p><a href="@($"/admin/insurance/{EmployeeId}")">前往保險投保設定，以預覽／確認流程維護</a></p>
+ }
+ @if(_detail.LaborInsuranceEnrollments.Count>0){<table class="data-table"><thead><tr><th>狀態</th><th>勞保投保薪資</th><th>期間</th><th>設定狀態</th></tr></thead><tbody>@foreach(var item in _detail.LaborInsuranceEnrollments){<tr><td>@EnrollmentLabel(item.Status)</td><td>@Money(item.MonthlyLaborInsuredSalary)</td><td>@item.EffectiveFrom ～ @(item.EffectiveTo?.ToString() ?? "持續")</td><td>@(item.IsActive?"有效":"停用")</td></tr>}</tbody></table>}
+ @if(_detail.OccupationalInsuranceEnrollments is { Count: > 0 }){<h3>災保歷史</h3><table class="data-table"><thead><tr><th>狀態</th><th>災保投保薪資</th><th>期間</th><th>設定狀態</th></tr></thead><tbody>@foreach(var item in _detail.OccupationalInsuranceEnrollments){<tr><td>@(item.Status == OccupationalInsuranceEnrollmentStatus.Enrolled ? "已投保" : "未投保期間")</td><td>@Money(item.MonthlyInsuredSalary)</td><td>@item.EffectiveFrom ～ @(item.EffectiveTo?.ToString() ?? "持續")</td><td>@(item.IsActive?"有效":"停用")</td></tr>}</tbody></table>}
+ else { <EmptyState Title="尚未建立災保資料" Description="災保投保薪資及生效期間請由保險投保設定獨立維護。" /> }
+ <p>目前適用政策：@(_detail.HasApplicableLaborInsurancePolicy ? "可用" : "待官方核定")</p>
+</section>
+}
+@if (_canManage)
+{
+<section class="content-card"><h2>固定薪資與加給方案</h2><div class="form-grid"><div class="field"><label for="payroll-plan">方案</label><InputSelect id="payroll-plan" @bind-Value="_assignment.PayrollPlanId"><option value="@Guid.Empty">請選擇</option>@foreach(var p in _settings?.Plans ?? []){<option value="@p.Id">@p.Name</option>}</InputSelect></div><div class="field"><label for="plan-effective-from">生效日</label><InputDate id="plan-effective-from" @bind-Value="_assignment.EffectiveFrom" /></div><div class="field"><label for="plan-effective-to">結束日</label><InputDate id="plan-effective-to" @bind-Value="_assignment.EffectiveTo" /></div></div><FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="AssignAsync">新增薪資方案</FluentButton></section>
+<section class="content-card"><h2>個別固定薪資／加給設定</h2><div class="form-grid"><div class="field"><label for="override-component">薪資項目</label><InputSelect id="override-component" @bind-Value="_override.ComponentDefinitionId"><option value="@Guid.Empty">請選擇</option>@foreach(var c in _settings?.Components.Where(x=>x.IsActive) ?? []){<option value="@c.Id">@PayrollDisplay.Component(c.Code,c.Name)</option>}</InputSelect></div><div class="field"><label for="override-mode">調整方式</label><InputSelect id="override-mode" @bind-Value="_override.Mode">@foreach(var mode in Enum.GetValues<PayrollOverrideMode>()){<option value="@mode">@PayrollDisplay.OverrideMode(mode)</option>}</InputSelect></div><div class="field"><label for="override-amount">金額</label><InputNumber id="override-amount" @bind-Value="_override.Amount" /></div><div class="field"><label for="override-effective-from">生效日</label><InputDate id="override-effective-from" @bind-Value="_override.EffectiveFrom" /></div><div class="field"><label for="override-effective-to">結束日</label><InputDate id="override-effective-to" @bind-Value="_override.EffectiveTo" /></div><div class="field"><label for="override-reason">設定說明代碼</label><InputText id="override-reason" @bind-Value="_override.ReasonCode" /></div></div><FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="OverrideAsync">新增個別設定</FluentButton></section>
+}
+<section class="content-card"><h2>方案歷程</h2><table class="data-table"><thead><tr><th>方案</th><th>期間</th><th>狀態</th></tr></thead><tbody>@foreach(var x in _detail.Assignments){<tr><td>@x.PayrollPlanName</td><td>@x.EffectiveFrom ～ @(x.EffectiveTo?.ToString() ?? "持續")</td><td>@(x.IsActive?"啟用":"停用")</td></tr>}</tbody></table></section>
+<section class="content-card"><h2>個別設定歷程</h2><table class="data-table"><thead><tr><th>項目</th><th>調整方式</th><th>金額</th><th>期間</th></tr></thead><tbody>@foreach(var x in _detail.Overrides){<tr><td>@PayrollDisplay.Component(x.ComponentCode,x.ComponentName,PlanCodeFor(x))</td><td>@PayrollDisplay.OverrideMode(x.Mode)</td><td>@Money(x.Amount)</td><td>@x.EffectiveFrom ～ @(x.EffectiveTo?.ToString() ?? "持續")</td></tr>}</tbody></table></section>
+}
+@code {
+ [Parameter] public Guid EmployeeId {get;set;} private bool _loading=true,_busy; private bool _canManage,_canViewInsurance,_canManageInsurance; private string? _message; private MessageIntent _intent=MessageIntent.Info; private EmployeePayrollDetailDto? _detail; private PayrollSettingsDto? _settings; private PayrollFixedEarningsPreviewDto? _preview;
+ private int _previewYear=DateTime.Today.Year,_previewMonth=DateTime.Today.Month;
+ private CreatePayrollAssignmentRequest _assignment=new(){EffectiveFrom=DateOnly.FromDateTime(DateTime.Today)}; private CreatePayrollOverrideRequest _override=new(){EffectiveFrom=DateOnly.FromDateTime(DateTime.Today),Mode=PayrollOverrideMode.Replace}; private CreatePayrollPayCycleRequest _payCycle=new(){EffectiveFrom=new DateOnly(DateTime.Today.Year,DateTime.Today.Month,1),Reason="發薪方式設定"};
+ protected override async Task OnParametersSetAsync(){_loading=true;try{_canManage=CurrentUser.HasPermission(PolicyNames.PayrollManage);_canViewInsurance=CurrentUser.HasPermission(PolicyNames.InsuranceView);_canManageInsurance=CurrentUser.HasPermission(PolicyNames.InsuranceManage);_settings=await Payroll.GetSettingsAsync();_detail=await Payroll.GetEmployeeAsync(EmployeeId);_assignment.EmployeeId=EmployeeId;_override.EmployeeId=EmployeeId;_payCycle.EmployeeId=EmployeeId;}finally{_loading=false;}}
+ private async Task PreviewAsync(){_busy=true;try{_preview=await Payroll.PreviewFixedEarningsAsync(EmployeeId,_previewYear,_previewMonth);_message="薪資項目試算完成；政策待確認及尚未計算項目未列入小計。";_intent=MessageIntent.Success;}catch(Exception ex){_preview=null;_message=PayrollDisplay.UserMessage(ex.Message);_intent=MessageIntent.Error;}finally{_busy=false;}}
+ private async Task AssignAsync()=>await ExecuteAsync(async()=>await Payroll.AssignPlanAsync(_assignment),"薪資方案已依生效日新增。"); private async Task OverrideAsync()=>await ExecuteAsync(async()=>await Payroll.CreateOverrideAsync(_override),"薪資項目覆蓋已依生效日新增。");
+ private async Task PayCycleAsync()=>await ExecuteAsync(async()=>await Payroll.CreatePayCycleAsync(_payCycle),"發薪方式已依生效期間新增。");
+ private async Task ExecuteAsync(Func<Task<Guid>> action,string success){_busy=true;try{await action();_message=success;_intent=MessageIntent.Success;_detail=await Payroll.GetEmployeeAsync(EmployeeId);_preview=null;}catch(Exception ex){_message=PayrollDisplay.UserMessage(ex.Message);_intent=MessageIntent.Error;}finally{_busy=false;}}
+ private static string Money(decimal? value)=>value?.ToString("N2")??"—"; private static string Factor(decimal? value)=>value.HasValue?$"{value:P2}":"—";
+ private static string ReasonLabel(AttendanceAllowanceIneligibilityReason value){var labels=new List<string>();if(value.HasFlag(AttendanceAllowanceIneligibilityReason.Late))labels.Add("遲到");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.EarlyLeave))labels.Add("早退");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.MissingClockIn))labels.Add("上班缺卡");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.MissingClockOut))labels.Add("下班缺卡");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.ApprovedLeave))labels.Add("正式請假");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.AbsencePolicyPending))labels.Add("缺勤政策待確認");return string.Join(" + ",labels);}
+ private static string BucketLabel(OvertimePayBucket value)=>value switch{OvertimePayBucket.FirstTwoHours=>"前 2 小時",OvertimePayBucket.AfterTwoHours=>"2 小時後",OvertimePayBucket.AfterEightHours=>"8 小時後",_=>value.ToString()};
+ private static string EnrollmentLabel(LaborInsuranceEnrollmentStatus? value)=>value switch{LaborInsuranceEnrollmentStatus.Enrolled=>"參加勞保",LaborInsuranceEnrollmentStatus.NotEnrolled=>"明確不適用",_=>"未設定"};
+ private static string ContributionLabel(LaborInsuranceContributionKind value)=>value switch{LaborInsuranceContributionKind.OrdinaryAccident=>"普通事故保險",LaborInsuranceContributionKind.Employment=>"就業保險",_=>value.ToString()};
+  private static string HealthEnrollmentLabel(HealthInsuranceEnrollmentStatus? value)=>value switch{HealthInsuranceEnrollmentStatus.Enrolled=>"參加健保",HealthInsuranceEnrollmentStatus.NotEnrolled=>"明確不適用",_=>"未設定"};
+  private string? PlanCodeFor(EmployeePayrollOverrideDto item)
+  {
+      if (_detail is null) return null;
+      var itemEnd = item.EffectiveTo ?? DateOnly.MaxValue;
+      var matches = _detail.Assignments
+          .Where(x => x.IsActive && x.EffectiveFrom <= itemEnd &&
+              (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= item.EffectiveFrom))
+          .Select(x => x.PayrollPlanCode)
+          .Distinct(StringComparer.Ordinal)
+          .Take(2)
+          .ToArray();
+      return matches.Length == 1 ? matches[0] : null;
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "solution": {
+    "path": "HRSystem.slnx",
+    "projects": [
+      "src\\HRSystem.Web\\HRSystem.Web.csproj",
+      "tests\\HRSystem.IntegrationTests\\HRSystem.IntegrationTests.csproj"
+    ]
+  }
+}

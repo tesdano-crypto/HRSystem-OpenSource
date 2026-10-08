@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HRSystem.AttendanceImport.Job/HRSystem.AttendanceImport.Job.csproj" />
+    <Project Path="src/HRSystem.Application/HRSystem.Application.csproj" />
+    <Project Path="src/HRSystem.Domain/HRSystem.Domain.csproj" />
+    <Project Path="src/HRSystem.Infrastructure/HRSystem.Infrastructure.csproj" />
+    <Project Path="src/HRSystem.Web/HRSystem.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HRSystem.IntegrationTests/HRSystem.IntegrationTests.csproj" />
+    <Project Path="tests/HRSystem.UnitTests/HRSystem.UnitTests.csproj" />
+  </Folder>
+</Solution>

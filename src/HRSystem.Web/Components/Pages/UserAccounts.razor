@@ -1,0 +1,184 @@
+@page "/admin/users"
+@attribute [Authorize(Policy = PolicyNames.UserAdmin)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@using HRSystem.Application.Employees
+@using HRSystem.Application.UserAccounts
+@inject IUserAccountService UserAccountService
+@inject IEmployeeService EmployeeService
+@inject IToastService ToastService
+
+<PageTitle>帳號管理｜<OrganizationTitle /></PageTitle>
+<PageHeader Title="帳號管理" Description="建立帳號、指派角色、連結員工，以及停用或重設密碼。">
+    <Actions><FluentButton Appearance="@Appearance.Accent" OnClick="StartCreate">新增帳號</FluentButton></Actions>
+</PageHeader>
+
+<div class="toolbar">
+    <div class="field"><label for="user-keyword">關鍵字</label><input id="user-keyword" @bind="_query.Keyword" placeholder="帳號、Email、顯示名稱" /></div>
+    <div class="field"><label for="user-role">角色</label><select id="user-role" @bind="_query.Role"><option value="">全部</option>@foreach (var role in RoleNames.Ordered){<option value="@role">@SecurityDisplayCatalog.RoleName(role)</option>}</select></div>
+    <div class="field"><label for="user-status">狀態</label><select id="user-status" @bind="_status"><option value="all">全部</option><option value="active">啟用</option><option value="inactive">停用</option></select></div>
+    <FluentButton Appearance="@Appearance.Accent" OnClick="SearchAsync">查詢</FluentButton>
+</div>
+
+@if (_editing)
+{
+    <section class="editor-panel">
+        <h2>@(_editId is null ? "新增帳號" : "編輯帳號")</h2>
+        <EditForm Model="CurrentForm" OnSubmit="SaveAsync">
+            <DataAnnotationsValidator /><ValidationSummary />
+            <div class="form-grid">
+                @if (_editId is null)
+                {
+                    <div class="field">
+                        <label>登入帳號</label>
+                        <InputText @bind-Value="_createForm.UserName" />
+                        <small>用於登入系統，不一定要是 Email。</small>
+                        <ValidationMessage For="@(() => _createForm.UserName)" />
+                    </div>
+                    <div class="field">
+                        <label>暫時密碼</label>
+                        <InputText type="password" minlength="@InternalPasswordPolicy.MinimumLength" @bind-Value="_createForm.TemporaryPassword" />
+                        <small>至少 4 個字元，不限制大小寫、數字或特殊字元。</small>
+                        <ValidationMessage For="@(() => _createForm.TemporaryPassword)" />
+                    </div>
+                    <div class="field">
+                        <label>Email（選填）</label>
+                        <InputText @bind-Value="_createForm.Email" />
+                        <small>選填。目前系統未提供 Email 自助重設密碼；未填寫仍可由管理員重設密碼。</small>
+                        <ValidationMessage For="@(() => _createForm.Email)" />
+                    </div>
+                    <div class="field"><label>顯示名稱</label><InputText @bind-Value="_createForm.DisplayName" /><ValidationMessage For="@(() => _createForm.DisplayName)" /></div>
+                    <div class="field full"><label>連結員工</label><InputSelect @bind-Value="_createForm.EmployeeId"><option value="">不連結</option>@foreach (var employee in _employees){<option value="@employee.Id">@employee.EmployeeNumber — @employee.ChineseName</option>}</InputSelect></div>
+                }
+                else
+                {
+                    <div class="field">
+                        <label>Email（選填）</label>
+                        <InputText @bind-Value="_updateForm.Email" />
+                        <small>目前系統未提供 Email 自助重設密碼；未填寫仍可由管理員重設密碼。</small>
+                        <ValidationMessage For="@(() => _updateForm.Email)" />
+                    </div>
+                    <div class="field"><label>顯示名稱</label><InputText @bind-Value="_updateForm.DisplayName" /><ValidationMessage For="@(() => _updateForm.DisplayName)" /></div>
+                    <div class="field full"><label>連結員工</label><InputSelect @bind-Value="_updateForm.EmployeeId"><option value="">不連結</option>@foreach (var employee in _employees){<option value="@employee.Id">@employee.EmployeeNumber — @employee.ChineseName</option>}</InputSelect></div>
+                }
+                <fieldset class="field full"><legend>角色</legend><label class="checkbox-row"><InputCheckbox @bind-Value="_admin" /> 系統管理員</label><label class="checkbox-row"><InputCheckbox @bind-Value="_hr" /> 人資</label><label class="checkbox-row"><InputCheckbox @bind-Value="_accounting" /> 會計</label><label class="checkbox-row"><InputCheckbox @bind-Value="_owner" /> 老闆</label><label class="checkbox-row"><InputCheckbox @bind-Value="_manager" /> 主管</label><label class="checkbox-row"><InputCheckbox @bind-Value="_employee" /> 一般員工</label></fieldset>
+                <section class="field full" aria-labelledby="selected-role-permissions">
+                    <h3 id="selected-role-permissions">所選角色包含的權限</h3>
+                    @foreach (var group in SelectedPermissionDisplays().GroupBy(item => item.Group))
+                    {
+                        <div class="permission-group"><strong>@group.Key</strong>
+                            @foreach (var permission in group)
+                            {
+                                <label class="checkbox-row"><input type="checkbox" checked disabled /> @permission.Name</label>
+                            }
+                        </div>
+                    }
+                </section>
+            </div>
+            <div class="form-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="CancelEdit">取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="_saving">儲存</FluentButton></div>
+        </EditForm>
+    </section>
+}
+
+@if (_resetUser is not null)
+{
+    <section class="editor-panel">
+        <h2>重設 @_resetUser.UserName 的密碼</h2>
+        <EditForm Model="_reset" OnValidSubmit="ResetPasswordAsync"><DataAnnotationsValidator /><ValidationSummary />
+            <div class="form-grid">
+                <div class="field">
+                    <label>新密碼</label>
+                    <InputText type="password" minlength="@InternalPasswordPolicy.MinimumLength" @bind-Value="_reset.NewPassword" />
+                    <small>至少 4 個字元，不限制大小寫、數字或特殊字元。</small>
+                    <ValidationMessage For="@(() => _reset.NewPassword)" />
+                </div>
+                <div class="field">
+                    <label>確認密碼</label>
+                    <InputText type="password" minlength="@InternalPasswordPolicy.MinimumLength" @bind-Value="_reset.ConfirmPassword" />
+                    <ValidationMessage For="@(() => _reset.ConfirmPassword)" />
+                </div>
+            </div>
+            <div class="form-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="CancelReset">取消</FluentButton><FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit">重設密碼</FluentButton></div>
+        </EditForm>
+    </section>
+}
+
+@if (!string.IsNullOrWhiteSpace(_error)) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+else if (_loading) { <LoadingState /> }
+else if (_result is null || _result.Items.Count == 0) { <EmptyState /> }
+else
+{
+    <div class="grid-shell"><table class="data-table"><thead><tr><th>帳號</th><th>顯示名稱</th><th>Email</th><th>員工</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead><tbody>
+    @foreach (var item in _result.Items)
+    {
+        <tr><td>@item.UserName</td><td>@item.DisplayName</td><td>@item.Email</td><td>@(item.EmployeeName ?? "—")</td><td>@string.Join("、", item.Roles.Select(SecurityDisplayCatalog.RoleName))</td><td><StatusBadge IsActive="item.IsActive" /></td><td><div class="row-actions"><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => StartEdit(item))">編輯</FluentButton><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => ToggleActiveAsync(item))">@(item.IsActive ? "停用" : "啟用")</FluentButton><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => StartReset(item))">重設密碼</FluentButton></div></td></tr>
+    }
+    </tbody></table></div>
+    <Paginator PageNumber="_result.PageNumber" TotalPages="_result.TotalPages" TotalCount="_result.TotalCount" PageChanged="ChangePageAsync" />
+}
+
+@code {
+    private readonly UserAccountQuery _query = new();
+    private PagedResult<UserAccountDto>? _result;
+    private IReadOnlyList<EmployeeDto> _employees = [];
+    private CreateUserAccountRequest _createForm = new();
+    private UpdateUserAccountRequest _updateForm = new();
+    private ResetUserPasswordRequest _reset = new();
+    private UserAccountDto? _resetUser;
+    private string? _editId;
+    private string _status = "all";
+    private string? _error;
+    private bool _loading = true;
+    private bool _editing;
+    private bool _saving;
+    private bool _admin;
+    private bool _hr;
+    private bool _accounting;
+    private bool _owner;
+    private bool _manager;
+    private bool _employee = true;
+    private object CurrentForm => _editId is null ? _createForm : _updateForm;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var employees = await EmployeeService.GetListAsync(new EmployeeQuery { IsActive = true, PageSize = 100 });
+        _employees = employees.Items;
+        await LoadAsync();
+    }
+
+    private async Task SearchAsync() { _query.PageNumber = 1; _query.IsActive = _status switch { "active" => true, "inactive" => false, _ => null }; await LoadAsync(); }
+    private async Task ChangePageAsync(int page) { _query.PageNumber = page; await LoadAsync(); }
+    private async Task LoadAsync() { _loading = true; _error = null; try { _result = await UserAccountService.GetListAsync(_query); } catch (Exception ex) { _error = Friendly(ex); } finally { _loading = false; } }
+    private void StartCreate() { _editId = null; _createForm = new CreateUserAccountRequest { Roles = [RoleNames.Employee] }; _admin = _hr = _accounting = _owner = _manager = false; _employee = true; _editing = true; }
+    private void StartEdit(UserAccountDto item) { _editId = item.Id; _updateForm = new UpdateUserAccountRequest { Id = item.Id, Email = item.Email, DisplayName = item.DisplayName, EmployeeId = item.EmployeeId, Roles = item.Roles.ToList(), RowVersion = item.RowVersion }; _admin = item.Roles.Contains(RoleNames.Admin); _hr = item.Roles.Contains(RoleNames.HR); _accounting = item.Roles.Contains(RoleNames.Accounting); _owner = item.Roles.Contains(RoleNames.Owner); _manager = item.Roles.Contains(RoleNames.Manager); _employee = item.Roles.Contains(RoleNames.Employee); _editing = true; }
+    private void CancelEdit() => _editing = false;
+    private List<string> SelectedRoles() { var roles = new List<string>(); if (_admin) roles.Add(RoleNames.Admin); if (_hr) roles.Add(RoleNames.HR); if (_accounting) roles.Add(RoleNames.Accounting); if (_owner) roles.Add(RoleNames.Owner); if (_manager) roles.Add(RoleNames.Manager); if (_employee) roles.Add(RoleNames.Employee); return roles; }
+    private IReadOnlyList<PermissionDisplay> SelectedPermissionDisplays()
+    {
+        var roles = SelectedRoles();
+        return SecurityDisplayCatalog.Permissions
+            .Where(permission => RolePermissions.HasPermission(roles, permission.Code))
+            .ToArray();
+    }
+    private async Task SaveAsync(EditContext editContext)
+    {
+        if (_editId is null) _createForm.Roles = SelectedRoles();
+        else _updateForm.Roles = SelectedRoles();
+        if (!editContext.Validate()) return;
+
+        _saving = true; _error = null;
+        try
+        {
+            if (_editId is null) await UserAccountService.CreateAsync(_createForm);
+            else await UserAccountService.UpdateAsync(_updateForm);
+            ToastService.ShowSuccess("帳號資料已儲存。"); _editing = false; await LoadAsync();
+        }
+        catch (Exception ex) { _error = Friendly(ex); ToastService.ShowError(_error); }
+        finally { _saving = false; }
+    }
+    private async Task ToggleActiveAsync(UserAccountDto item) { try { await UserAccountService.SetActiveAsync(item.Id, !item.IsActive, item.RowVersion); await LoadAsync(); } catch (Exception ex) { _error = Friendly(ex); } }
+    private void StartReset(UserAccountDto item) { _resetUser = item; _reset = new ResetUserPasswordRequest { UserId = item.Id }; }
+    private void CancelReset() => _resetUser = null;
+    private async Task ResetPasswordAsync() { try { await UserAccountService.ResetPasswordAsync(_reset); ToastService.ShowSuccess("密碼已重設。"); _resetUser = null; } catch (Exception ex) { _error = Friendly(ex); } }
+    private static string Friendly(Exception ex) => ex is ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException ? ex.Message : "帳號操作失敗，請稍後再試。";
+}

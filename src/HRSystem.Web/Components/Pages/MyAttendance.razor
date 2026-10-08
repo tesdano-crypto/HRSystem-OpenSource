@@ -1,0 +1,213 @@
+@page "/my-attendance"
+@attribute [Authorize(Policy = PolicyNames.AttendanceSelfService)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Domain.Attendance
+@using HRSystem.Domain.Overtime
+@inject IAttendanceReviewService AttendanceReviewService
+@inject TimeProvider TimeProvider
+
+<PageTitle>我的每日出勤</PageTitle>
+<PageHeader Title="我的每日出勤" Description="查看自己的每日出勤、異常與加班認列狀態。" />
+
+<FluentMessageBar Intent="@MessageIntent.Info">
+    本頁只顯示既有的最終出勤認列結果，不會修改打卡、請假、加班或人工調整資料。
+</FluentMessageBar>
+
+<section class="content-card my-attendance-filters" aria-label="個人出勤查詢條件">
+    <div class="filter-grid">
+        <div class="field"><label for="my-attendance-start">開始日期</label><InputDate id="my-attendance-start" @bind-Value="_query.StartDate" /></div>
+        <div class="field"><label for="my-attendance-end">結束日期</label><InputDate id="my-attendance-end" @bind-Value="_query.EndDate" /></div>
+        <div class="field">
+            <label for="my-attendance-filter">快速篩選</label>
+            <InputSelect id="my-attendance-filter" @bind-Value="_query.QuickFilter">
+                <option value="@MyAttendanceQuickFilter.All">全部</option>
+                <option value="@MyAttendanceQuickFilter.NonWorkingDayPunch">@NonWorkingDayAttendanceDisplay.Presence</option>
+                <option value="@MyAttendanceQuickFilter.Normal">正常</option>
+                <option value="@MyAttendanceQuickFilter.Anomalies">有異常</option>
+                <option value="@MyAttendanceQuickFilter.Late">遲到</option>
+                <option value="@MyAttendanceQuickFilter.EarlyLeave">早退</option>
+                <option value="@MyAttendanceQuickFilter.MissingPunch">缺卡</option>
+                <option value="@MyAttendanceQuickFilter.ExtendedStay">延後下班</option>
+                <option value="@MyAttendanceQuickFilter.PotentialUnreportedOvertime">疑似未申報加班</option>
+                <option value="@MyAttendanceQuickFilter.HasOvertimeRequest">有加班申請</option>
+                <option value="@MyAttendanceQuickFilter.RecognizedOvertime">已認列加班</option>
+            </InputSelect>
+        </div>
+        <div class="field">
+            <label for="my-attendance-direction">日期排序</label>
+            <InputSelect id="my-attendance-direction" @bind-Value="_query.SortDirection">
+                <option value="@AttendanceReviewSortDirection.Descending">新到舊</option>
+                <option value="@AttendanceReviewSortDirection.Ascending">舊到新</option>
+            </InputSelect>
+        </div>
+    </div>
+    <div class="toolbar">
+        <FluentButton Appearance="@Appearance.Accent" Disabled="_loading" OnClick="SearchAsync">查詢</FluentButton>
+        <FluentButton Appearance="@Appearance.Outline" Disabled="_loading" OnClick="ResetAsync">本月</FluentButton>
+    </div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_messageIntent">@_message</FluentMessageBar>
+}
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_result is { HasEmployeeBinding: false })
+{
+    <EmptyState Title="目前帳號尚未綁定員工資料" Description="目前帳號尚未綁定員工資料，無法查看個人出勤。" />
+}
+else if (_result is null || _result.Items.Count == 0)
+{
+    <EmptyState Title="查無個人出勤結果" Description="目前條件沒有已產生的每日出勤結果。" />
+}
+else
+{
+    <section class="my-attendance-summary" aria-label="個人出勤摘要">
+        <div><strong>@_result.Summary.WorkdayCount</strong><span>工作日</span></div>
+        <div><strong>@_result.Summary.NormalCount</strong><span>正常</span></div>
+        <div class="summary-alert"><strong>@_result.Summary.AnomalyCount</strong><span>異常</span></div>
+        <div><strong>@_result.Summary.LateCount</strong><span>遲到</span></div>
+        <div><strong>@_result.Summary.EarlyLeaveCount</strong><span>早退</span></div>
+        <div><strong>@_result.Summary.MissingPunchCount</strong><span>缺卡</span></div>
+        <div><strong>@_result.Summary.ExtendedStayCount</strong><span>延後下班</span></div>
+        <div class="summary-alert"><strong>@_result.Summary.PotentialUnreportedOvertimeCount</strong><span>疑似未申報加班</span></div>
+        <div><strong>@_result.Summary.RecognizedOvertimeCount</strong><span>已認列加班</span></div>
+    </section>
+
+    <FluentMessageBar Intent="@MessageIntent.Warning">
+        「疑似未申報加班」只表示出勤時間需確認，不代表已認定加班。
+    </FluentMessageBar>
+
+    <div class="grid-shell my-attendance-grid">
+        <table class="data-table">
+            <thead><tr><th>日期</th><th>排定時間</th><th>實際上班</th><th>實際下班</th><th>出勤狀態</th><th>加班／認列</th><th>處理狀態</th><th>申請</th><th>明細</th></tr></thead>
+            <tbody>
+            @foreach (var item in _result.Items)
+            {
+                <tr>
+                    <td>@item.WorkDate.ToString("yyyy/MM/dd")<div class="muted">@Weekday(item.WorkDate)</div></td>
+                    <td>@ScheduledText(item)</td>
+                    <td class="@(item.IsLate ? "anomaly-time" : null)">@ClockText(item.EffectiveClockInLocalTime, item.MissingClockIn)</td>
+                    <td class="@ClockOutCss(item)">@ClockText(item.EffectiveClockOutLocalTime, item.MissingClockOut)</td>
+                    <td>
+                        <strong>@AttendanceStatus(item)</strong>
+                        <NonWorkingPunchEvidenceView Evidence="item.PunchEvidence" Links="item.OvertimeLinks" Date="item.WorkDate" EmployeeView="true" />
+                        @foreach (var text in AnomalyTexts(item)) { <div>@text</div> }
+                    </td>
+                    <td>@OvertimeText(item.OvertimeRequest)<div><a href="/my-overtime">查看加班申請</a></div></td>
+                    <td>
+                        @if (item.ReviewItems.Count == 0) { <span>—</span> }
+                        @foreach (var review in item.ReviewItems) { <div class="status-badge @ReviewCss(review.State)">@review.PublicStatus</div> }
+                        @foreach (var correction in item.CorrectionRequests) { <div class="status-badge">@correction.PublicStatus</div> }
+                    </td>
+                    <td>@foreach (var link in CorrectionLinks(item)) { <div><a href="@link.Url">@link.Text</a></div> }</td>
+                    <td>@if (item.DailyAttendanceResultId != Guid.Empty) { <a href="@($"/my-attendance/{item.DailyAttendanceResultId}")">查看</a> }</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "nonWorking")]
+    [Parameter] public bool NonWorking { get; set; }
+    private MyAttendanceQuery _query = new();
+    private MyAttendanceResult? _result;
+    private bool _loading;
+    private string? _message;
+    private MessageIntent _messageIntent = MessageIntent.Info;
+
+    protected override async Task OnInitializedAsync()
+    {
+        SetCurrentMonth();
+        if (NonWorking) _query.QuickFilter = MyAttendanceQuickFilter.NonWorkingDayPunch;
+        await SearchAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        try
+        {
+            _loading = true;
+            _message = null;
+            _result = await AttendanceReviewService.SearchMineAsync(_query);
+        }
+        catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException)
+        {
+            _message = ex.Message;
+            _messageIntent = MessageIntent.Error;
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task ResetAsync() { SetCurrentMonth(); await SearchAsync(); }
+    private void SetCurrentMonth()
+    {
+        var today = DateOnly.FromDateTime(TaipeiTime.ToLocalDateTime(TimeProvider.GetUtcNow()));
+        _query = new MyAttendanceQuery
+        {
+            StartDate = new DateOnly(today.Year, today.Month, 1),
+            EndDate = new DateOnly(today.Year, today.Month, DateTime.DaysInMonth(today.Year, today.Month)),
+            SortDirection = AttendanceReviewSortDirection.Descending
+        };
+    }
+
+    private static string ScheduledText(MyAttendanceRowDto item) =>
+        item.ScheduledStartTime.HasValue && item.ScheduledEndTime.HasValue
+            ? $"{item.ScheduledStartTime:HH\\:mm}–{item.ScheduledEndTime:HH\\:mm}"
+            : item.IsRequiredWorkday ? "未指派班別" : "非工作日";
+    private static string ClockText(DateTime? value, bool missing) => missing ? "缺卡" : value?.ToString("HH:mm") ?? "—";
+    private static string? ClockOutCss(MyAttendanceRowDto item) => item.IsEarlyLeave || item.OverstayLevel == AttendanceReviewOverstayLevel.PotentialUnreportedOvertime ? "anomaly-time" : item.OverstayLevel == AttendanceReviewOverstayLevel.ExtendedStay ? "overstay-warning" : null;
+    private static string AttendanceStatus(MyAttendanceRowDto item) => item.IsEmploymentSuspended ? "留職停薪" : item.IsAttendanceExempted ? "天然災害出勤例外" : item.LeaveCoverageStatus == "Full" ? "全日請假" : !item.IsRequiredWorkday ? (item.CalendarClassification == "Holiday" ? "休假日" : "非工作日") : item.LeaveCoverageStatus == "Partial" ? "部分請假" : item.IsAnomaly ? "出勤異常" : "正常";
+    private static IEnumerable<string> AnomalyTexts(MyAttendanceRowDto item)
+    {
+        if (item.IsLate) yield return $"遲到 {item.LateMinutes} 分鐘";
+        if (item.IsEarlyLeave) yield return $"早退 {item.EarlyLeaveMinutes} 分鐘";
+        if (item.MissingClockIn && item.MissingClockOut) yield return "上下班缺卡";
+        else if (item.MissingClockIn) yield return "上班缺卡";
+        else if (item.MissingClockOut) yield return "下班缺卡";
+        if (item.OverstayLevel == AttendanceReviewOverstayLevel.ExtendedStay) yield return $"延後下班 {item.OverstayMinutes} 分鐘";
+        if (item.OverstayLevel == AttendanceReviewOverstayLevel.PotentialUnreportedOvertime) yield return $"疑似未申報加班 {item.OverstayMinutes} 分鐘";
+    }
+    private static string OvertimeText(AttendanceReviewOvertimeRequestDto value) => value.State switch
+    {
+        AttendanceReviewOvertimeRequestState.DraftRequest => $"草稿（{value.RequestedMinutes} 分鐘）",
+        AttendanceReviewOvertimeRequestState.PendingRequest => $"待審核（申請 {value.RequestedMinutes} 分鐘）",
+        AttendanceReviewOvertimeRequestState.RejectedRequest => "已駁回",
+        AttendanceReviewOvertimeRequestState.WithdrawnRequest => "已撤回",
+        AttendanceReviewOvertimeRequestState.ApprovedPendingRecognition => $"核准 {value.RequestedMinutes} 分鐘／待實際工時確認",
+        AttendanceReviewOvertimeRequestState.RecognitionConfirmed => $"核准 {value.RequestedMinutes} 分鐘／實際認列 {value.RecognizedMinutes ?? 0} 分鐘",
+        AttendanceReviewOvertimeRequestState.RecognitionNeedsReview or AttendanceReviewOvertimeRequestState.RecognitionReopened => $"核准 {value.RequestedMinutes} 分鐘／出勤資料已變更，待重新確認",
+        AttendanceReviewOvertimeRequestState.ApprovedCovered or AttendanceReviewOvertimeRequestState.ApprovedPartiallyCovered => $"已核准 {value.RequestedMinutes} 分鐘",
+        _ => "無申請"
+    };
+    private static string ReviewCss(AttendanceReviewState state) => state == AttendanceReviewState.Resolved ? "success" : state == AttendanceReviewState.Pending ? "warning" : "danger";
+    private static IEnumerable<(string Text, string Url)> CorrectionLinks(MyAttendanceRowDto item)
+    {
+        var root = $"/my-attendance-requests?attendanceResultId={item.DailyAttendanceResultId:D}&requestType=";
+        if (item.MissingClockIn && item.MissingClockOut) yield return ("申請補卡", root + AttendanceCorrectionRequestType.MissingBoth);
+        else
+        {
+            if (item.MissingClockIn) yield return ("申請補上班卡", root + AttendanceCorrectionRequestType.MissingClockIn);
+            else if (item.EffectiveClockInLocalTime.HasValue && item.IsAnomaly) yield return ("更正上班時間", root + AttendanceCorrectionRequestType.ClockInCorrection);
+            if (item.MissingClockOut) yield return ("申請補下班卡", root + AttendanceCorrectionRequestType.MissingClockOut);
+            else if (item.EffectiveClockOutLocalTime.HasValue && item.IsAnomaly) yield return ("更正下班時間", root + AttendanceCorrectionRequestType.ClockOutCorrection);
+        }
+        if (item.IsLate) yield return ("提交遲到說明", root + AttendanceCorrectionRequestType.LateExplanation);
+        if (item.IsEarlyLeave) yield return ("提交早退說明", root + AttendanceCorrectionRequestType.EarlyLeaveExplanation);
+        if (item.OverstayLevel == AttendanceReviewOverstayLevel.PotentialUnreportedOvertime) yield return ("補加班申請", OvertimePrefillUrl(item));
+    }
+    private static string OvertimePrefillUrl(MyAttendanceRowDto item)
+    {
+        var start = item.ScheduledEndTime.HasValue ? item.WorkDate.ToDateTime(item.ScheduledEndTime.Value) : item.WorkDate.ToDateTime(new TimeOnly(17, 30));
+        var end = item.EffectiveClockOutLocalTime ?? start.AddHours(1);
+        return $"/my-overtime?workDate={item.WorkDate:yyyy-MM-dd}&start={start:yyyy-MM-ddTHH:mm}&end={end:yyyy-MM-ddTHH:mm}";
+    }
+    private static string Weekday(DateOnly date) => date.DayOfWeek switch { DayOfWeek.Monday => "星期一", DayOfWeek.Tuesday => "星期二", DayOfWeek.Wednesday => "星期三", DayOfWeek.Thursday => "星期四", DayOfWeek.Friday => "星期五", DayOfWeek.Saturday => "星期六", _ => "星期日" };
+}

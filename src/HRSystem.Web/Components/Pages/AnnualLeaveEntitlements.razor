@@ -1,0 +1,46 @@
+@page "/admin/annual-leave-entitlements"
+@attribute [Authorize(Policy = PolicyNames.LeaveManage)]
+@using HRSystem.Application.AnnualLeave
+@inject IAnnualLeaveService AnnualLeaveService
+
+<PageTitle>特休額度管理</PageTitle>
+<PageHeader Title="特休額度管理" Description="唯讀檢視核發、保留、使用與剩餘額度；額度不可直接修改。" />
+<div class="toolbar">
+    <div class="field"><label for="annual-keyword">員工</label><input id="annual-keyword" @bind="_keyword" placeholder="編號或姓名" /></div>
+    <div class="field"><label for="annual-department">部門</label><input id="annual-department" @bind="_department" placeholder="部門名稱" /></div>
+    <div class="field"><label for="annual-status">狀態</label><input id="annual-status" @bind="_status" placeholder="Open" /></div>
+</div>
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_items is null)
+{
+    <LoadingState />
+}
+else
+{
+    <div class="grid-shell"><table class="data-table"><thead><tr><th>員工編號</th><th>姓名</th><th>部門</th><th>聘用日</th><th>本期</th><th>狀態</th><th>核發</th><th>保留</th><th>已使用</th><th>可用</th></tr></thead><tbody>
+    @foreach (var item in FilteredItems)
+    {
+        <tr><td><a href="@($"/admin/annual-leave-entitlements/{item.EmployeeId}")">@item.EmployeeNumber</a></td><td>@item.EmployeeName</td><td>@item.DepartmentName</td><td>@item.HireDate</td><td>@item.CurrentPeriodStart ～ @item.CurrentPeriodEnd</td><td>@item.CurrentStatus</td><td>@item.GrantedMinutes</td><td>@item.ReservedMinutes</td><td>@item.ConsumedMinutes</td><td>@item.AvailableMinutes</td></tr>
+    }
+    </tbody></table></div>
+}
+
+@code {
+    private IReadOnlyList<AnnualLeaveEmployeeSummaryDto>? _items;
+    private string? _keyword;
+    private string? _department;
+    private string? _status;
+    private string? _error;
+    private IEnumerable<AnnualLeaveEmployeeSummaryDto> FilteredItems => (_items ?? [])
+        .Where(x => string.IsNullOrWhiteSpace(_keyword) || x.EmployeeNumber.Contains(_keyword, StringComparison.OrdinalIgnoreCase) || x.EmployeeName.Contains(_keyword, StringComparison.OrdinalIgnoreCase))
+        .Where(x => string.IsNullOrWhiteSpace(_department) || x.DepartmentName.Contains(_department, StringComparison.OrdinalIgnoreCase))
+        .Where(x => string.IsNullOrWhiteSpace(_status) || string.Equals(x.CurrentStatus, _status, StringComparison.OrdinalIgnoreCase));
+    protected override async Task OnInitializedAsync()
+    {
+        try { _items = await AnnualLeaveService.GetAdminSummariesAsync(); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+}

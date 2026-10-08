@@ -1,0 +1,649 @@
+@page "/attendance/daily"
+@attribute [Authorize(Policy = PolicyNames.AttendanceDailyRead)]
+@using HRSystem.Application.Abstractions.Security
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@using HRSystem.Domain.Attendance
+@inject IAttendanceManagementService AttendanceService
+@inject ICurrentUser CurrentUser
+@inject TimeProvider TimeProvider
+
+@code {
+    [SupplyParameterFromQuery(Name = "dateFrom")]
+    public DateOnly? QueryDateFrom { get; set; }
+
+    [SupplyParameterFromQuery(Name = "dateTo")]
+    public DateOnly? QueryDateTo { get; set; }
+
+    [SupplyParameterFromQuery(Name = "employeeId")]
+    public Guid? QueryEmployeeId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "resultId")]
+    public Guid? QueryResultId { get; set; }
+}
+
+<PageTitle>每日出勤</PageTitle>
+<PageHeader Title="每日出勤" Description="原始打卡是機器證據；認列時間與行政調整會分開顯示。" />
+
+<FluentMessageBar Intent="@MessageIntent.Info">
+    查詢僅顯示已產生的每日出勤結果。若班別、行事曆或打卡資料已變更，請由管理員使用「重新產生出勤結果」。
+</FluentMessageBar>
+
+<div class="toolbar">
+    <div class="field"><label for="daily-from">起日</label><InputDate id="daily-from" @bind-Value="_query.DateFrom" /></div>
+    <div class="field"><label for="daily-to">迄日</label><InputDate id="daily-to" @bind-Value="_query.DateTo" /></div>
+    @if (_isAdmin)
+    {
+        <div class="field">
+            <label for="daily-employee">員工</label>
+            <InputSelect id="daily-employee" @bind-Value="_query.EmployeeId">
+                <option value="">全部</option>
+                @foreach (var employee in _employees)
+                {
+                    <option value="@employee.EmployeeId">@employee.EmployeeNumber — @employee.EmployeeName</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="field"><label for="daily-keyword">員工關鍵字</label><InputText id="daily-keyword" @bind-Value="_query.Keyword" /></div>
+        <div class="field">
+            <label>
+                <InputCheckbox @bind-Value="_query.IncludeInactiveEmployees" />
+                包含停用／離職員工
+            </label>
+        </div>
+    }
+    <div class="field">
+        <label for="daily-status">狀態</label>
+        <InputSelect id="daily-status" @bind-Value="_query.Status">
+            <option value="">全部</option>
+            @foreach (var status in Enum.GetValues<AttendanceDailyStatus>())
+            {
+                <option value="@status">@StatusLabel(status.ToString())</option>
+            }
+        </InputSelect>
+    </div>
+    <div class="field"><label><InputCheckbox @bind-Value="_query.ExceptionsOnly" /> 僅顯示例外</label></div>
+    <div class="field">
+        <label for="daily-page-size">每頁</label>
+        <select id="daily-page-size" @bind="_query.PageSize">
+            <option value="25">25</option><option value="50">50</option><option value="100">100</option>
+        </select>
+    </div>
+    <FluentButton Appearance="@Appearance.Accent" Disabled="_loading" OnClick="SearchAsync">查詢</FluentButton>
+</div>
+
+@if (_isAdmin)
+{
+    <section class="content-card">
+        <h2>管理維護</h2>
+        <p>重新讀取原始打卡、班別指派及公司行事曆，並更新每日出勤結果。</p>
+        <p>不會修改原始打卡紀錄，已存在的人工調整會依既有規則保留。</p>
+        @if (_recalculationPreview is null)
+        {
+            <FluentButton Appearance="@Appearance.Outline"
+                          Disabled="_loading"
+                          OnClick="PrepareRecalculationAsync">
+                重新產生出勤結果
+            </FluentButton>
+        }
+        else
+        {
+            <div class="editor-panel" role="alertdialog" aria-label="重新產生出勤結果確認">
+                <h3>重新產生出勤結果</h3>
+                <dl>
+                    <dt>日期</dt>
+                    <dd>@_recalculationPreview.DateFrom.ToString("yyyy/MM/dd")～@_recalculationPreview.DateTo.ToString("yyyy/MM/dd")</dd>
+                    <dt>員工</dt>
+                    <dd>@_recalculationEmployeeLabel（@_recalculationPreview.EmployeeCount 位）</dd>
+                    <dt>日曆天數</dt>
+                    <dd>@_recalculationPreview.CalendarDayCount 日</dd>
+                    <dt>預估處理</dt>
+                    <dd>@_recalculationPreview.EstimatedEmployeeDays 個人日</dd>
+                </dl>
+                <FluentMessageBar Intent="@MessageIntent.Warning">
+                    這是寫入操作，會更新每日出勤結果；不會修改原始打卡紀錄，既有人工調整會依目前規則保留。
+                </FluentMessageBar>
+                @if (_recalculationPreview.IsBulk)
+                {
+                    <FluentMessageBar Intent="@MessageIntent.Warning">
+                        批次操作：範圍包含全部員工，必須再完成一次明確確認。
+                    </FluentMessageBar>
+                }
+                <div class="form-actions">
+                    <FluentButton Appearance="@Appearance.Stealth" OnClick="CancelRecalculation">取消</FluentButton>
+                    @if (_recalculationPreview.IsBulk && !_bulkConfirmationReady)
+                    {
+                        <FluentButton Appearance="@Appearance.Outline" OnClick="PrepareBulkConfirmation">
+                            確認批次範圍
+                        </FluentButton>
+                    }
+                    else
+                    {
+                        <FluentButton Appearance="@Appearance.Accent"
+                                      Disabled="_loading"
+                                      OnClick="ExecuteRecalculationAsync">
+                            @(_recalculationPreview.IsBulk ? "再次確認並重新產生全部員工結果" : "確認重新產生")
+                        </FluentButton>
+                    }
+                </div>
+            </div>
+        }
+    </section>
+}
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_messageIntent">@_message</FluentMessageBar>
+}
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_result is null || _result.Items.Count == 0)
+{
+    <EmptyState Title="查無每日出勤結果" Description="每日結果只會由管理員明確執行重新計算後產生。" />
+}
+else
+{
+    <div class="grid-shell">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>日期</th><th>員工</th><th>班別</th><th>工作日</th>
+                    <th>原始打卡上班</th><th>原始打卡下班</th>
+                    <th>認列上班</th><th>認列下班</th>
+                    <th>狀態</th><th>請假</th><th>出勤分鐘</th><th>調整</th><th>認列來源</th><th>最後計算（台北）</th>
+                    @if (_isAdmin) { <th>操作</th> }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in _result.Items)
+                {
+                    <tr>
+                        <td>@item.WorkDate</td>
+                        <td>@item.EmployeeNumber — @item.EmployeeName</td>
+                        <td>@(item.ShiftName ?? "未指派")</td>
+                        <td>@if (item.HasNonWorkingPunch) { <span>非工作日（@NonWorkingDayAttendanceDisplay.Calendar(item.PunchEvidence!)）</span> }
+                            else { <span>@(item.IsRequiredWorkday ? "是" : "否")（@item.CalendarClassification）</span> }</td>
+                        <td>@FormatSourceLocal(item.HasNonWorkingPunch ? item.PunchEvidence!.FirstPunch : item.RawClockInLocalTime)
+                            @if (item.HasNonWorkingPunch) { <div class="muted">原始證據首筆</div> }</td>
+                        <td>@FormatSourceLocal(item.HasNonWorkingPunch ? item.PunchEvidence!.LastPunch : item.RawClockOutLocalTime)
+                            @if (item.HasNonWorkingPunch) { <div class="muted">原始證據末筆</div> }</td>
+                        <td>@FormatSourceLocal(item.EffectiveClockInLocalTime)</td>
+                        <td>@FormatSourceLocal(item.EffectiveClockOutLocalTime)</td>
+                        <td>
+                            @if (item.PunchEvidence is not null)
+                            {
+                                <NonWorkingPunchEvidenceView Evidence="item.PunchEvidence" Links="item.OvertimeLinks"
+                                    Date="item.WorkDate" EmployeeView="!_isAdmin" ShowSeconds="true" />
+                                @if (item.OvertimeLinks.Count == 0) { <div>加班：尚未申請</div> }
+                                @foreach (var review in item.PunchReviewItems) { <div>@review.PublicStatus</div> }
+                            }
+                            else { @StatusLabel(item.Status) }
+                        </td>
+                        <td>
+                            @if (item.IsEmploymentSuspended)
+                            {
+                                <strong>育嬰留職停薪</strong>
+                                @if (item.EmploymentSuspensionSourceId.HasValue)
+                                {
+                                    <div><a href="@($"/parental-leave/{item.EmploymentSuspensionSourceId}")">查看申請</a></div>
+                                }
+                            }
+                            else
+                            {
+                                <strong>@LeaveCoverageLabel(item.LeaveCoverageStatus)</strong>
+                            }
+                            @if (item.IsAttendanceExempted)
+                            {
+                                <div><strong>天然災害出勤豁免</strong>（@item.AttendanceExceptionMinutes 分鐘）</div>
+                                <div>@ExceptionReasonLabel(item.AttendanceExceptionReasonType)／@ExceptionImpactLabel(item.AttendanceExceptionImpactType, item.AttendanceExceptionFromTime, item.AttendanceExceptionToTime)</div>
+                                @if (item.AttendanceExceptionSourceId.HasValue)
+                                {
+                                    <div><a href="@($"/attendance-exceptions/{item.AttendanceExceptionSourceId}")">查看出勤豁免申請</a></div>
+                                }
+                            }
+                            @if (item.LeaveSegments.Count > 0)
+                            {
+                                @foreach (var segment in item.LeaveSegments)
+                                {
+                                    <div>
+                                        <a href="@($"/leave-requests/{segment.LeaveRequestId}")">
+                                            @segment.LeaveTypeName
+                                        </a>
+                                        @FormatLeaveInterval(segment)
+                                        （@segment.CoveredMinutes 分鐘）
+                                    </div>
+                                }
+                                <div>核准請假：@item.ApprovedLeaveMinutes 分鐘</div>
+                            }
+                            @if (item.WorkedDuringApprovedLeaveMinutes > 0)
+                            {
+                                <div role="alert">核准請假期間有出勤紀錄（@item.WorkedDuringApprovedLeaveMinutes 分鐘）</div>
+                            }
+                        </td>
+                        <td>
+                            <div>必須出勤：@item.RequiredAttendanceMinutes</div>
+                            <div>認列出勤：@item.RecognizedWorkMinutes</div>
+                            <div>未覆蓋缺勤：@item.MissingMinutes</div>
+                        </td>
+                        <td>
+                            @(item.IsAdjusted ? "已調整" : "未調整")
+                            @if (!string.IsNullOrWhiteSpace(item.CurrentAdjustmentReason))
+                            {
+                                <span>（@ReasonLabel(item.CurrentAdjustmentReason)）</span>
+                            }
+                        </td>
+                        <td>@(item.RecognitionSource ?? "原始打卡")</td>
+                        <td>@TaipeiTime.Format(item.CalculatedAtUtc)</td>
+                        @if (_isAdmin)
+                        {
+                            <td><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => SelectAdjustmentAsync(item))">調整與歷程</FluentButton></td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <Paginator PageNumber="_result.PageNumber" TotalPages="_result.TotalPages" TotalCount="_result.TotalCount" PageChanged="ChangePageAsync" />
+}
+
+@if (_isAdmin && _selected is not null)
+{
+    <section class="content-card">
+        <h2>行政調整：@_selected.WorkDate @(_selected.EmployeeNumber)</h2>
+        <p>原始打卡：@FormatSourceLocal(_selected.RawClockInLocalTime) / @FormatSourceLocal(_selected.RawClockOutLocalTime)</p>
+        <EditForm Model="_adjustment" OnValidSubmit="SaveAdjustmentAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <div class="form-grid">
+                <div class="field"><label><InputCheckbox @bind-Value="_adjustment.AdjustClockIn" /> 調整認列上班</label></div>
+                <div class="field"><label for="recognized-in">認列上班時間</label><input id="recognized-in" type="datetime-local" step="1" @bind="_adjustment.RecognizedClockInLocalTime" /></div>
+                <div class="field"><label><InputCheckbox @bind-Value="_adjustment.AdjustClockOut" /> 調整認列下班</label></div>
+                <div class="field"><label for="recognized-out">認列下班時間</label><input id="recognized-out" type="datetime-local" step="1" @bind="_adjustment.RecognizedClockOutLocalTime" /></div>
+                <div class="field">
+                    <label for="adjust-reason">原因</label>
+                    <InputSelect id="adjust-reason" @bind-Value="_adjustment.Reason">
+                        @foreach (var reason in Enum.GetValues<AttendanceAdjustmentReason>())
+                        {
+                            <option value="@reason">@ReasonLabel(reason.ToString())</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="field"><label for="adjust-note">說明</label><InputTextArea id="adjust-note" @bind-Value="_adjustment.Note" /></div>
+            </div>
+            <div class="toolbar">
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="RecognizeScheduledStart">認列正常上班 08:00</FluentButton>
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="RecognizeScheduledEnd">認列正常下班 17:30</FluentButton>
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="RecognizeScheduledPair">認列正常出勤</FluentButton>
+                <FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit">儲存調整</FluentButton>
+                @if (_selected.IsAdjusted)
+                {
+                    <FluentButton Appearance="@Appearance.Outline" OnClick="RevertAsync">建立撤銷修訂</FluentButton>
+                }
+            </div>
+        </EditForm>
+
+        <h3>追加式調整歷程</h3>
+        @if (_history.Count == 0)
+        {
+            <p>尚無調整歷程。</p>
+        }
+        else
+        {
+            <div class="grid-shell">
+                <table class="data-table">
+                    <thead><tr><th>修訂</th><th>動作</th><th>原因</th><th>說明</th><th>調整時間（台北）</th></tr></thead>
+                    <tbody>
+                        @foreach (var history in _history)
+                        {
+                            <tr>
+                                <td>@history.RevisionNumber</td>
+                                <td>@history.Action</td>
+                                <td>@ReasonLabel(history.Reason)</td>
+                                <td>@history.Note</td>
+                                <td>@TaipeiTime.Format(history.AdjustedAtUtc)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private DailyAttendanceQuery _query = new();
+    private PagedResult<DailyAttendanceResultDto>? _result;
+    private IReadOnlyList<AttendanceEmployeeOptionDto> _employees = [];
+    private IReadOnlyList<AttendanceAdjustmentDto> _history = [];
+    private DailyAttendanceResultDto? _selected;
+    private AttendanceAdjustmentRequest _adjustment = new();
+    private bool _isAdmin;
+    private bool _loading = true;
+    private string? _message;
+    private MessageIntent _messageIntent = MessageIntent.Info;
+    private AttendanceRecalculationPreview? _recalculationPreview;
+    private Guid? _recalculationEmployeeId;
+    private string _recalculationEmployeeLabel = string.Empty;
+    private bool _bulkConfirmationReady;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAdmin = CurrentUser.HasPermission(PolicyNames.AttendanceViewAll);
+        var today = DateOnly.FromDateTime(
+            TaipeiTime.ToLocalDateTime(TimeProvider.GetUtcNow()));
+        _query = new DailyAttendanceQuery
+        {
+            DateFrom = QueryDateFrom ?? QueryDateTo ?? today.AddDays(-6),
+            DateTo = QueryDateTo ?? QueryDateFrom ?? today,
+            EmployeeId = QueryEmployeeId,
+            IncludeInactiveEmployees = QueryEmployeeId.HasValue,
+            PageSize = 50
+        };
+        if (_query.DateTo < _query.DateFrom)
+        {
+            (_query.DateFrom, _query.DateTo) =
+                (_query.DateTo, _query.DateFrom);
+        }
+        if (_isAdmin)
+        {
+            await LoadEmployeeOptionsAsync();
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        _query.PageNumber = 1;
+        await LoadEmployeeOptionsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadEmployeeOptionsAsync()
+    {
+        if (!_isAdmin ||
+            !_query.DateFrom.HasValue ||
+            !_query.DateTo.HasValue ||
+            _query.DateTo.Value < _query.DateFrom.Value)
+        {
+            return;
+        }
+
+        _employees = await AttendanceService.GetDailyEmployeeOptionsAsync(
+            _query.DateFrom.Value,
+            _query.DateTo.Value,
+            _query.IncludeInactiveEmployees);
+        if (_query.EmployeeId.HasValue &&
+            !_employees.Any(item =>
+                item.EmployeeId == _query.EmployeeId.Value))
+        {
+            _query.EmployeeId = null;
+        }
+    }
+
+    private async Task ChangePageAsync(int page)
+    {
+        _query.PageNumber = page;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _message = null;
+        try
+        {
+            _result = await AttendanceService.GetDailyResultsAsync(_query);
+            if (_isAdmin &&
+                _selected is null &&
+                QueryResultId.HasValue &&
+                _result.Items.FirstOrDefault(item =>
+                    item.Id == QueryResultId.Value) is { } selected)
+            {
+                await SelectAdjustmentAsync(selected);
+            }
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task PrepareRecalculationAsync()
+    {
+        if (!_query.DateFrom.HasValue || !_query.DateTo.HasValue)
+        {
+            _messageIntent = MessageIntent.Error;
+            _message = "請先選擇重新計算日期範圍。";
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            _recalculationEmployeeId = _query.EmployeeId;
+            _recalculationEmployeeLabel = _query.EmployeeId.HasValue
+                ? _employees.FirstOrDefault(item =>
+                    item.EmployeeId == _query.EmployeeId.Value) is { } employee
+                    ? $"{employee.EmployeeNumber} — {employee.EmployeeName}"
+                    : "指定員工"
+                : "全部員工";
+            _recalculationPreview = await AttendanceService.GetRecalculationPreviewAsync(new()
+            {
+                DateFrom = _query.DateFrom.Value,
+                DateTo = _query.DateTo.Value,
+                EmployeeId = _query.EmployeeId
+            });
+            _bulkConfirmationReady = false;
+            _message = null;
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+            CancelRecalculation();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void PrepareBulkConfirmation() => _bulkConfirmationReady = true;
+
+    private void CancelRecalculation()
+    {
+        _recalculationPreview = null;
+        _recalculationEmployeeId = null;
+        _recalculationEmployeeLabel = string.Empty;
+        _bulkConfirmationReady = false;
+    }
+
+    private async Task ExecuteRecalculationAsync()
+    {
+        if (_recalculationPreview is null ||
+            (_recalculationPreview.IsBulk && !_bulkConfirmationReady))
+        {
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            var completed = await AttendanceService.RecalculateAsync(new()
+            {
+                DateFrom = _recalculationPreview.DateFrom,
+                DateTo = _recalculationPreview.DateTo,
+                EmployeeId = _recalculationEmployeeId
+            });
+            CancelRecalculation();
+            await LoadAsync();
+            _messageIntent = MessageIntent.Success;
+            _message = $"重新產生完成：{completed.EmployeeCount} 位員工，{completed.ResultCount} 筆每日結果。";
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+            _loading = false;
+        }
+    }
+
+    private async Task SelectAdjustmentAsync(DailyAttendanceResultDto item)
+    {
+        _selected = item;
+        _adjustment = new AttendanceAdjustmentRequest
+        {
+            DailyAttendanceResultId = item.Id,
+            RecognizedClockInLocalTime = item.EffectiveClockInLocalTime,
+            RecognizedClockOutLocalTime = item.EffectiveClockOutLocalTime,
+            Reason = AttendanceAdjustmentReason.ManagerApproved,
+            RowVersion = item.RowVersion
+        };
+        _history = await AttendanceService.GetAdjustmentHistoryAsync(item.Id);
+    }
+
+    private void RecognizeScheduledStart()
+    {
+        if (_selected is null) return;
+        _adjustment.AdjustClockIn = true;
+        _adjustment.RecognizedClockInLocalTime =
+            _selected.WorkDate.ToDateTime(new TimeOnly(8, 0));
+    }
+
+    private void RecognizeScheduledEnd()
+    {
+        if (_selected is null) return;
+        _adjustment.AdjustClockOut = true;
+        _adjustment.RecognizedClockOutLocalTime =
+            _selected.WorkDate.ToDateTime(new TimeOnly(17, 30));
+    }
+
+    private void RecognizeScheduledPair()
+    {
+        RecognizeScheduledStart();
+        RecognizeScheduledEnd();
+    }
+
+    private async Task SaveAdjustmentAsync()
+    {
+        try
+        {
+            var updated = await AttendanceService.AdjustAsync(_adjustment);
+            _messageIntent = MessageIntent.Success;
+            _message = "出勤調整已建立新的歷程修訂。";
+            await LoadAsync();
+            await SelectAdjustmentAsync(updated);
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+    }
+
+    private async Task RevertAsync()
+    {
+        if (_selected is null || string.IsNullOrWhiteSpace(_adjustment.Note))
+        {
+            _messageIntent = MessageIntent.Error;
+            _message = "撤銷調整仍須填寫說明。";
+            return;
+        }
+
+        try
+        {
+            var updated = await AttendanceService.RevertAdjustmentAsync(new()
+            {
+                DailyAttendanceResultId = _selected.Id,
+                Note = _adjustment.Note,
+                RowVersion = _selected.RowVersion
+            });
+            _messageIntent = MessageIntent.Success;
+            _message = "已建立撤銷修訂；原調整歷程完整保留。";
+            await LoadAsync();
+            await SelectAdjustmentAsync(updated);
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+    }
+
+    private void ShowError(Exception exception)
+    {
+        _messageIntent = MessageIntent.Error;
+        _message = exception is ApplicationValidationException or
+            ConcurrencyConflictException or ForbiddenAccessException
+            ? exception.Message
+            : "每日出勤作業未完成，未顯示資料庫或系統細節。";
+    }
+
+    private static string FormatSourceLocal(DateTime? value) =>
+        value?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—";
+
+    private static string FormatLeaveInterval(
+        DailyAttendanceLeaveSegmentDto segment)
+    {
+        var start = TaipeiTime.ToLocalDateTime(segment.StartAtUtc);
+        var end = TaipeiTime.ToLocalDateTime(segment.EndAtUtc);
+        return $"{start:HH:mm}～{end:HH:mm}";
+    }
+
+    private static string LeaveCoverageLabel(string value) => value switch
+    {
+        "None" => "無請假",
+        "Partial" => "部分請假",
+        "Full" => "全日請假",
+        _ => value
+    };
+
+    private static string StatusLabel(string value) => value switch
+    {
+        "Normal" => "正常",
+        "Late" => "遲到",
+        "EarlyLeave" => "早退",
+        "LateAndEarlyLeave" => "遲到且早退",
+        "MissingClockIn" => "缺上班卡",
+        "MissingClockOut" => "缺下班卡",
+        "NoPunch" => "無打卡",
+        "AmbiguousPunch" => "打卡不明確",
+        "RestDay" => "休息日",
+        "NoShift" => "未指派班別",
+        "EmploymentSuspended" => "育嬰留職停薪",
+        "AttendanceExempted" => "天然災害出勤豁免",
+        _ => value
+    };
+
+    private static string ExceptionReasonLabel(string? value) => value switch
+    {
+        "WorkplaceClosure" => "工作所在地停止辦公",
+        "ResidenceClosure" => "居住地停止辦公",
+        "CommuteRouteClosure" => "正常通勤必經地區停止辦公",
+        "TransportationBlocked" => "天然災害造成交通阻塞",
+        _ => value ?? "—"
+    };
+
+    private static string ExceptionImpactLabel(string? value, TimeOnly? from, TimeOnly? to) => value switch
+    {
+        "FullDay" => "全日豁免",
+        "LateArrival" => $"延後到班（豁免至 {to:HH\\:mm}）",
+        "EarlyDeparture" => $"提前離開（自 {from:HH\\:mm} 起豁免）",
+        _ => value ?? "—"
+    };
+
+    private static string ReasonLabel(string value) => value switch
+    {
+        "OfficialBusiness" => "公務外出",
+        "DeviceFailure" => "設備異常",
+        "ForgotPunch" => "忘記打卡",
+        "ManagerApproved" => "主管核准",
+        "Other" => "其他",
+        _ => value
+    };
+}

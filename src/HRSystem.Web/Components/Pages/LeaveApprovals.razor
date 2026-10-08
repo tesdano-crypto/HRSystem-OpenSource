@@ -1,0 +1,127 @@
+@page "/approvals/leave"
+@attribute [Authorize(Policy = PolicyNames.LeaveRequestApprove)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@using HRSystem.Application.LeaveRequests
+@using HRSystem.Domain.LeaveRequests
+@using HRSystem.Domain.MasterData
+@inject ILeaveRequestService LeaveRequestService
+@inject IDialogService DialogService
+@inject IToastService ToastService
+
+<PageTitle>請假審核</PageTitle>
+<PageHeader Title="請假審核" Description="Manager 可審核同部門員工；Admin 可審核全公司員工的請假與撤簽申請。" />
+
+<div class="toolbar">
+    <div class="field"><label for="approval-keyword">員工／單號</label><input id="approval-keyword" @bind="_query.Keyword" /></div>
+    <div class="field"><label for="approval-leave-type">假別</label><InputSelect id="approval-leave-type" @bind-Value="_query.LeaveTypeId"><option value="">全部</option>@foreach (var option in _leaveTypes){<option value="@option.Id">@option.Name</option>}</InputSelect></div>
+    <div class="field"><label for="approval-start">開始日期</label><InputDate id="approval-start" @bind-Value="_query.StartDate" /></div>
+    <div class="field"><label for="approval-end">結束日期</label><InputDate id="approval-end" @bind-Value="_query.EndDate" /></div>
+    <FluentButton Appearance="@Appearance.Accent" OnClick="SearchAsync">查詢</FluentButton>
+</div>
+
+@if (_rejecting is not null)
+{
+    <section class="editor-panel">
+        <h2>@(_rejectingCancellation ? "駁回撤簽" : "退回請假") @_rejecting.RequestNumber</h2>
+        <div class="field">
+            <label for="approval-reject-comment">處理理由（必填）</label>
+            <textarea id="approval-reject-comment" maxlength="1000" @bind="_rejectComment" @bind:event="oninput"></textarea>
+        </div>
+        <div class="form-actions">
+            <FluentButton Appearance="@Appearance.Stealth" OnClick="CancelReject">取消</FluentButton>
+            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="RejectAsync">確認</FluentButton>
+        </div>
+    </section>
+}
+
+@if (!string.IsNullOrWhiteSpace(_error)) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+else if (_loading) { <LoadingState /> }
+else
+{
+    <section class="detail-card"><h2>待處理</h2>
+        @if (_pending is null || _pending.Items.Count == 0) { <EmptyState Title="目前沒有待處理申請" Description="送審或撤簽申請會顯示在這裡。" /> }
+        else { @RequestTable(_pending.Items, true) <Paginator PageNumber="_pending.PageNumber" TotalPages="_pending.TotalPages" TotalCount="_pending.TotalCount" PageChanged="ChangePendingPageAsync" /> }
+    </section>
+    <section class="detail-card"><h2>處理紀錄</h2>
+        @if (_processed is null || _processed.Items.Count == 0) { <EmptyState Title="目前沒有處理紀錄" Description="已核准、退回或處理撤簽的申請會顯示在這裡。" /> }
+        else { @RequestTable(_processed.Items, false) }
+    </section>
+}
+
+@code {
+    private readonly LeaveRequestQuery _query = new();
+    private PagedResult<LeaveRequestDto>? _pending;
+    private PagedResult<LeaveRequestDto>? _processed;
+    private IReadOnlyList<LeaveTypeOptionDto> _leaveTypes = [];
+    private LeaveRequestDto? _rejecting;
+    private bool _rejectingCancellation;
+    private string? _rejectComment;
+    private string? _error;
+    private bool _loading = true;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() { _leaveTypes = await LeaveRequestService.GetAvailableLeaveTypesAsync(); await LoadAsync(); }
+    private async Task SearchAsync() { _query.PageNumber = 1; await LoadAsync(); }
+    private async Task ChangePendingPageAsync(int page) { _query.PageNumber = page; await LoadAsync(); }
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try { _pending = await LeaveRequestService.GetPendingApprovalsAsync(_query); _processed = await LeaveRequestService.GetProcessedApprovalsAsync(new LeaveRequestQuery { Keyword = _query.Keyword, LeaveTypeId = _query.LeaveTypeId, StartDate = _query.StartDate, EndDate = _query.EndDate, PageSize = 10 }); }
+        catch (Exception ex) { _error = Friendly(ex); }
+        finally { _loading = false; }
+    }
+
+    private RenderFragment RequestTable(IReadOnlyList<LeaveRequestDto> items, bool actions) => @<div class="grid-shell">
+        <table class="data-table"><thead><tr><th>單號</th><th>員工</th><th>假別</th><th>期間</th><th>時數</th><th>狀態</th><th>撤簽原因</th>@if(actions){<th>操作</th>}</tr></thead>
+            <tbody>@foreach(var item in items){<tr><td><a href="@($"/leave-requests/{item.Id}")">@item.RequestNumber</a></td><td>@item.EmployeeNumber－@item.EmployeeName</td><td>@item.LeaveTypeName</td><td>@FormatRange(item)</td><td>@FormatDuration(item)</td><td><LeaveStatusBadge Status="item.Status" /></td><td>@(item.CancellationReason ?? "－")</td>@if(actions){<td><div class="row-actions">@if(item.Status == LeaveRequestStatus.CancellationRequested){<FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="@(() => ApproveAsync(item))">核准撤簽</FluentButton><FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => StartReject(item))">駁回撤簽</FluentButton>}else{<FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="@(() => ApproveAsync(item))">核准</FluentButton><FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="@(() => StartReject(item))">退回</FluentButton>}</div></td>}</tr>}</tbody>
+        </table>
+    </div>;
+
+    private async Task ApproveAsync(LeaveRequestDto item)
+    {
+        var cancellation = item.Status == LeaveRequestStatus.CancellationRequested;
+        var dialog = await DialogService.ShowConfirmationAsync(
+            cancellation ? $"確定核准 {item.EmployeeName} 的撤簽申請？" : $"確定核准 {item.EmployeeName} 的請假申請？",
+            cancellation ? "核准撤簽" : "核准", "取消", cancellation ? "核准撤簽" : "核准請假");
+        if ((await dialog.Result).Cancelled) return;
+        await ExecuteAsync(
+            () => cancellation
+                ? LeaveRequestService.ApproveCancellationAsync(new LeaveRequestActionRequest { Id = item.Id, RowVersion = item.RowVersion })
+                : LeaveRequestService.ApproveAsync(new LeaveRequestActionRequest { Id = item.Id, RowVersion = item.RowVersion }),
+            cancellation ? "撤簽已核准，相關每日出勤已重新計算。" : "請假申請已核准。");
+    }
+
+    private void StartReject(LeaveRequestDto item) { _rejecting = item; _rejectingCancellation = item.Status == LeaveRequestStatus.CancellationRequested; _rejectComment = null; }
+    private void CancelReject() { _rejecting = null; _rejectingCancellation = false; _rejectComment = null; }
+    private async Task RejectAsync()
+    {
+        if (_rejecting is null) return;
+        if (string.IsNullOrWhiteSpace(_rejectComment)) { _error = "處理理由為必填欄位。"; return; }
+        var item = _rejecting;
+        var cancellation = _rejectingCancellation;
+        await ExecuteAsync(
+            () => cancellation
+                ? LeaveRequestService.RejectCancellationAsync(new RejectLeaveCancellationRequest { Id = item.Id, RowVersion = item.RowVersion, Comment = _rejectComment })
+                : LeaveRequestService.RejectAsync(new RejectLeaveRequestRequest { Id = item.Id, RowVersion = item.RowVersion, Comment = _rejectComment }),
+            cancellation ? "撤簽申請已駁回，原核准請假繼續有效。" : "請假申請已退回。");
+        CancelReject();
+    }
+
+    private async Task ExecuteAsync(Func<Task<LeaveRequestDto>> action, string success)
+    {
+        if (_busy) return; _busy = true; _error = null;
+        try { await action(); ToastService.ShowSuccess(success); await LoadAsync(); }
+        catch (Exception ex) { _error = Friendly(ex); ToastService.ShowError(_error); }
+        finally { _busy = false; }
+    }
+    private static string FormatRange(LeaveRequestDto item) =>
+        item.CalculationMode == LeaveCalculationMode.CalendarDays
+            ? $"{item.CalendarStartDate:yyyy/MM/dd} ～ {item.CalendarEndDate:yyyy/MM/dd}（{item.CalendarDayCount} 日）"
+            : $"{TaipeiTime.Format(item.StartAt)} ～ {TaipeiTime.Format(item.EndAt)}";
+    private static string FormatDuration(LeaveRequestDto item) =>
+        item.CalculationMode == LeaveCalculationMode.CalendarDays
+            ? $"出勤 {item.DurationHours:0.##} 小時"
+            : $"{item.DurationHours:0.##} 小時";
+    private static string Friendly(Exception ex) => ex is ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException or HRSystem.Domain.Common.DomainValidationException ? ex.Message : "處理請假審核時發生錯誤。";
+}

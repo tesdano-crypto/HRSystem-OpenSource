@@ -1,0 +1,107 @@
+.review-filters {
+    margin-block: 1rem;
+}
+
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 0.75rem;
+}
+
+.checkbox-field {
+    align-self: end;
+}
+
+.employee-picker {
+    margin-block: 1rem;
+    padding: 0.75rem;
+    border: 1px solid var(--neutral-stroke-rest);
+    border-radius: 0.5rem;
+}
+
+.employee-picker-header,
+.picker-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.employee-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 0.4rem 1rem;
+    max-height: 15rem;
+    overflow-y: auto;
+    margin-top: 0.75rem;
+}
+
+.employee-option {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.review-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 0.75rem;
+    margin-block: 1rem;
+}
+
+.review-summary > div {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem;
+    border: 1px solid var(--neutral-stroke-rest);
+    border-radius: 0.5rem;
+    text-align: center;
+}
+
+.review-summary strong {
+    font-size: 1.4rem;
+}
+
+.summary-alert strong,
+.anomaly-time {
+    color: #b10e1e;
+    font-weight: 700;
+}
+
+.overstay-warning {
+    color: #835c00;
+    font-weight: 600;
+}
+
+.anomaly-row {
+    background: color-mix(in srgb, #b10e1e 5%, transparent);
+}
+
+.muted {
+    color: var(--neutral-foreground-hint);
+    font-size: 0.85rem;
+}
+
+.status-badge {
+    display: inline-block;
+    margin: 0.1rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 999px;
+    background: #e7e7e7;
+    white-space: nowrap;
+}
+
+.status-badge.danger { background: #fde7e9; color: #a80000; }
+.status-badge.warning { background: #fff4ce; color: #835c00; }
+.status-badge.success { background: #dff6dd; color: #0b6a0b; }
+.status-badge.info { background: #deecf9; color: #004578; }
+.status-badge.neutral { background: #edebe9; color: #323130; }
+
+.review-grid {
+    margin-bottom: 1rem;
+}
+
+.employee-summary {
+    margin-top: 1rem;
+}

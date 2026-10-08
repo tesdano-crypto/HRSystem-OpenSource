@@ -1,0 +1,25 @@
+@page "/attendance-exceptions"
+@attribute [Authorize(Policy = PolicyNames.AttendanceExceptionSelfService)]
+@using HRSystem.Application.AttendanceExceptions
+@using HRSystem.Domain.AttendanceExceptions
+@inject IAttendanceExceptionService Service
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>我的天然災害出勤豁免</PageTitle>
+<PageHeader Title="我的天然災害出勤豁免" Description="此流程是出勤義務豁免，不是請假，不會建立請假時數或請假區間。" />
+@if (!_hasEmployee)
+{
+    <FluentMessageBar Intent="@MessageIntent.Warning">目前帳號未綁定員工資料，請使用管理／審核頁面查詢其他員工的出勤豁免申請。</FluentMessageBar>
+}
+else
+{
+    <div class="toolbar"><div class="field"><label>狀態</label><InputSelect @bind-Value="_query.Status"><option value="">全部</option>@foreach(var status in Enum.GetValues<AttendanceExceptionStatus>()){<option value="@status">@StatusText(status)</option>}</InputSelect></div><FluentButton Appearance="@Appearance.Accent" OnClick="LoadAsync">查詢</FluentButton><a class="button-link" href="/attendance-exceptions/new">新增申請</a></div>
+    @if(!string.IsNullOrWhiteSpace(_error)){<FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>}else if(_loading){<LoadingState/>}else if(_result is null||_result.Items.Count==0){<EmptyState Title="尚無出勤豁免申請" Description="可由新增申請開始。"/>}else{<div class="grid-shell"><table class="data-table"><thead><tr><th>單號</th><th>日期</th><th>原因</th><th>影響</th><th>狀態</th></tr></thead><tbody>@foreach(var item in _result.Items){<tr><td><a href="@($"/attendance-exceptions/{item.Id}")">@item.RequestNumber</a></td><td>@item.WorkDate</td><td>@ReasonText(item.ReasonType)</td><td>@ImpactText(item.ImpactType)</td><td>@StatusText(item.Status)</td></tr>}</tbody></table></div>}
+}
+@code{
+ private readonly AttendanceExceptionQuery _query=new(); private HRSystem.Application.Common.Models.PagedResult<AttendanceExceptionDto>? _result;private bool _hasEmployee;private bool _loading=true;private string? _error;
+ protected override async Task OnInitializedAsync(){var state=await AuthenticationStateProvider.GetAuthenticationStateAsync();_hasEmployee=state.User.HasClaim(x=>x.Type==HRSystem.Infrastructure.Identity.ApplicationUserClaimsPrincipalFactory.EmployeeIdClaimType);if(_hasEmployee)await LoadAsync();else _loading=false;} private async Task LoadAsync(){_loading=true;try{_result=await Service.GetMyRequestsAsync(_query);_error=null;}catch(Exception ex){_error=ex.Message;}finally{_loading=false;}}
+ internal static string StatusText(AttendanceExceptionStatus x)=>x switch{AttendanceExceptionStatus.Draft=>"草稿",AttendanceExceptionStatus.Submitted=>"待核准",AttendanceExceptionStatus.Approved=>"已核准",AttendanceExceptionStatus.Rejected=>"已駁回",AttendanceExceptionStatus.Withdrawn=>"已撤回",AttendanceExceptionStatus.CancellationRequested=>"取消申請中",AttendanceExceptionStatus.Cancelled=>"已取消",_=>x.ToString()};
+ internal static string ReasonText(NaturalDisasterReasonType x)=>x switch{NaturalDisasterReasonType.WorkplaceClosure=>"工作所在地停止辦公",NaturalDisasterReasonType.ResidenceClosure=>"居住地停止辦公",NaturalDisasterReasonType.CommuteRouteClosure=>"正常通勤必經地區停止辦公",NaturalDisasterReasonType.TransportationBlocked=>"天然災害造成交通阻塞",_=>x.ToString()};
+ internal static string ImpactText(AttendanceExceptionImpactType x)=>x switch{AttendanceExceptionImpactType.FullDay=>"全日豁免",AttendanceExceptionImpactType.LateArrival=>"延後到班",AttendanceExceptionImpactType.EarlyDeparture=>"提前離開",_=>x.ToString()};
+}

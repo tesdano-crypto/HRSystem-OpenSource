@@ -1,0 +1,19 @@
+@page "/parental-leave/approvals"
+@attribute [Authorize(Policy = PolicyNames.ParentalLeaveApprove)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@using HRSystem.Application.ParentalLeave
+@using HRSystem.Domain.ParentalLeave
+@inject IParentalLeaveService ParentalLeaveService
+
+<PageTitle>育嬰留停審核</PageTitle>
+<PageHeader Title="育嬰留停審核" Description="主管僅能處理同部門員工；Admin 可處理全公司申請。" />
+<div class="toolbar"><div class="field"><label for="parental-approval-keyword">員工／單號</label><InputText id="parental-approval-keyword" @bind-Value="_query.Keyword" /></div><FluentButton Appearance="@Appearance.Accent" OnClick="LoadAsync">查詢</FluentButton></div>
+@if(!string.IsNullOrWhiteSpace(_error)){<FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>}else if(_loading){<LoadingState/>}else if(_result is null||_result.Items.Count==0){<EmptyState Title="目前沒有待處理申請" Description="送審、取消或提前復職申請會顯示在這裡。"/>}else{<div class="grid-shell"><table class="data-table"><thead><tr><th>單號</th><th>員工</th><th>子女出生日期</th><th>期間</th><th>日數／類型</th><th>緊急照顧</th><th>處理項目</th></tr></thead><tbody>@foreach(var item in _result.Items){<tr><td><a href="@($"/parental-leave/{item.Id}")">@item.RequestNumber</a></td><td>@item.EmployeeNumber－@item.EmployeeName</td><td>@item.ChildBirthDate</td><td>@item.StartDate ～ @item.EndDate</td><td>@item.CalendarDayCount 日／@TypeText(item.ApplicationType)</td><td>@(item.NoticeType==ParentalLeaveNoticeType.EmergencyCare?item.EmergencyCareReason??"是":"否")</td><td>@PendingText(item)</td></tr>}</tbody></table></div>}
+@code{
+    private readonly ParentalLeaveQuery _query=new();private PagedResult<ParentalLeaveRequestDto>? _result;private bool _loading=true;private string? _error;
+    protected override Task OnInitializedAsync()=>LoadAsync();
+    private async Task LoadAsync(){_loading=true;_error=null;try{_result=await ParentalLeaveService.GetPendingApprovalsAsync(_query);}catch(Exception ex){_error=ex is ApplicationValidationException or ForbiddenAccessException?ex.Message:"讀取育嬰留停審核時發生錯誤。";}finally{_loading=false;}}
+    private static string PendingText(ParentalLeaveRequestDto item)=>item.Status==ParentalLeaveStatus.Submitted?"新申請":item.Status==ParentalLeaveStatus.CancellationRequested?"取消申請":item.EarlyReturnDate.HasValue&&!item.IsEarlyReturnApproved?$"提前復職：{item.EarlyReturnDate}":item.Status.ToString();
+    private static string TypeText(ParentalLeaveApplicationType value)=>value switch{ParentalLeaveApplicationType.Standard=>"一般",ParentalLeaveApplicationType.ShortTerm30DaysOrMore=>"短期",ParentalLeaveApplicationType.DailyUnder30Days=>"按日",_=>value.ToString()};
+}

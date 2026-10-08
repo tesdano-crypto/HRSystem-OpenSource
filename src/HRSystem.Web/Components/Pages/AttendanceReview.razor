@@ -1,0 +1,808 @@
+@page "/attendance-review"
+@attribute [Authorize(Policy = PolicyNames.AttendanceManage)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Domain.Attendance
+@using HRSystem.Domain.Overtime
+@inject IAttendanceReviewService AttendanceReviewService
+@inject TimeProvider TimeProvider
+@inject IJSRuntime JS
+@inject ILogger<AttendanceReview> Logger
+
+<PageTitle>出勤檢核</PageTitle>
+<PageHeader Title="出勤檢核" Description="依既有每日出勤認列結果，集中檢視員工出勤狀態與異常。" />
+
+<FluentMessageBar Intent="@MessageIntent.Info">
+    本頁只查詢已產生的每日出勤結果，不會重新計算或修改打卡、請假與人工調整資料。
+</FluentMessageBar>
+
+<section class="content-card review-filters" aria-label="出勤檢核條件">
+    <div class="filter-grid">
+        <div class="field">
+            <label for="review-department">部門</label>
+            <InputSelect id="review-department" @bind-Value="_departmentId">
+                <option value="">全部部門</option>
+                @foreach (var department in _options.Departments)
+                {
+                    <option value="@department.DepartmentId">
+                        @department.DepartmentCode — @department.DepartmentName
+                    </option>
+                }
+            </InputSelect>
+        </div>
+        <div class="field"><label for="review-start">開始日期</label><InputDate id="review-start" @bind-Value="_query.StartDate" /></div>
+        <div class="field"><label for="review-end">結束日期</label><InputDate id="review-end" @bind-Value="_query.EndDate" /></div>
+        <div class="field">
+            <label for="review-sort">排序</label>
+            <InputSelect id="review-sort" @bind-Value="_query.SortBy">
+                <option value="@AttendanceReviewSortField.WorkDate">日期</option>
+                <option value="@AttendanceReviewSortField.Employee">員工</option>
+                <option value="@AttendanceReviewSortField.Status">狀態</option>
+            </InputSelect>
+        </div>
+        <div class="field">
+            <label for="review-direction">方向</label>
+            <InputSelect id="review-direction" @bind-Value="_query.SortDirection">
+                <option value="@AttendanceReviewSortDirection.Descending">遞減</option>
+                <option value="@AttendanceReviewSortDirection.Ascending">遞增</option>
+            </InputSelect>
+        </div>
+        <div class="field">
+            <label for="review-quick-filter">快速篩選</label>
+            <InputSelect id="review-quick-filter" @bind-Value="_query.QuickFilter">
+                <option value="@AttendanceReviewQuickFilter.All">全部</option>
+                <option value="@AttendanceReviewQuickFilter.NonWorkingDayPunch">@NonWorkingDayAttendanceDisplay.Presence</option>
+                <option value="@AttendanceReviewQuickFilter.NonWorkingWeekend">週末打卡</option>
+                <option value="@AttendanceReviewQuickFilter.NonWorkingHoliday">假日打卡</option>
+                <option value="@AttendanceReviewQuickFilter.NonWorkingWithoutRequest">非工作日尚無加班申請</option>
+                <option value="@AttendanceReviewQuickFilter.HasOvertimeRequest">已有加班申請</option>
+                <option value="@AttendanceReviewQuickFilter.NonWorkingResolved">@NonWorkingDayAttendanceDisplay.Resolved</option>
+                <option value="@AttendanceReviewQuickFilter.Late">遲到</option>
+                <option value="@AttendanceReviewQuickFilter.EarlyLeave">早退</option>
+                <option value="@AttendanceReviewQuickFilter.MissingPunch">缺卡</option>
+                <option value="@AttendanceReviewQuickFilter.ExtendedStay">延後下班</option>
+                <option value="@AttendanceReviewQuickFilter.PotentialUnreportedOvertime">疑似未申報加班</option>
+                <option value="@AttendanceReviewQuickFilter.PendingReview">待確認</option>
+                <option value="@AttendanceReviewQuickFilter.ResolvedReview">已結案</option>
+                <option value="@AttendanceReviewQuickFilter.NeedsReview">需重新確認</option>
+            </InputSelect>
+        </div>
+        <div class="field checkbox-field">
+            <label><InputCheckbox @bind-Value="_query.OnlyAnomalies" /> 只顯示異常</label>
+        </div>
+        <div class="field checkbox-field">
+            <label><InputCheckbox @bind-Value="_query.OnlyPending" /> 只顯示待確認</label>
+        </div>
+    </div>
+
+    <div class="employee-picker" aria-label="員工複選">
+        <div class="employee-picker-header">
+            <strong>員工（已選 @_selectedEmployeeIds.Count 位）</strong>
+            <div class="picker-actions">
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="SelectFilteredEmployees">全選目前部門</FluentButton>
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="ClearEmployees">清除全部</FluentButton>
+            </div>
+        </div>
+        @if (FilteredEmployees.Count == 0)
+        {
+            <p class="muted">目前部門沒有員工。</p>
+        }
+        else
+        {
+            <div class="employee-options">
+                @foreach (var employee in FilteredEmployees)
+                {
+                    <label class="employee-option">
+                        <input type="checkbox"
+                               checked="@_selectedEmployeeIds.Contains(employee.EmployeeId)"
+                               @onchange="@(args => ToggleEmployee(employee.EmployeeId, args))" />
+                        <span>@employee.EmployeeNumber — @employee.EmployeeName</span>
+                    </label>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="toolbar">
+        <FluentButton Appearance="@Appearance.Accent" Disabled="_loading" OnClick="SearchAsync">查詢</FluentButton>
+        <FluentButton Appearance="@Appearance.Outline" Disabled="@(_loading || _exporting)" OnClick="ExportAsync">
+            @(_exporting ? "匯出中…" : "匯出 Excel")
+        </FluentButton>
+        <FluentButton Appearance="@Appearance.Outline" Disabled="_loading" OnClick="Reset">重設</FluentButton>
+    </div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_messageIntent">@_message</FluentMessageBar>
+}
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_result is null)
+{
+    <EmptyState Title="請選擇員工後查詢" Description="日期預設為今天；可依部門快速複選員工，查詢範圍最多 92 天。" />
+}
+else if (_result.Items.Count == 0)
+{
+    <EmptyState Title="查無出勤檢核結果" Description="目前條件沒有已產生的每日出勤結果。" />
+}
+else
+{
+    <section class="review-summary" aria-label="出勤檢核摘要">
+        <div><strong>@_result.Summary.ResultCount</strong><span>結果</span></div>
+        <div><strong>@_result.Summary.EmployeeCount</strong><span>員工</span></div>
+        <div class="summary-alert"><strong>@_result.Summary.AnomalyCount</strong><span>異常</span></div>
+        <div><strong>@_result.Summary.LateCount</strong><span>遲到</span></div>
+        <div><strong>@_result.Summary.EarlyLeaveCount</strong><span>早退</span></div>
+        <div><strong>@_result.Summary.MissingPunchCount</strong><span>缺卡</span></div>
+        <div><strong>@_result.Summary.ExtendedStayCount</strong><span>延後下班</span></div>
+        <div class="summary-alert"><strong>@_result.Summary.PotentialUnreportedOvertimeCount</strong><span>疑似未申報加班</span></div>
+        <div class="summary-alert"><strong>@_result.Summary.PendingReviewCount</strong><span>待確認</span></div>
+        <div><strong>@_result.Summary.ResolvedReviewCount</strong><span>已結案</span></div>
+        <div><strong>@_result.Items.Count(x => x.NonWorkingPunchPending)</strong><span>@NonWorkingDayAttendanceDisplay.Queue</span></div>
+        <div class="summary-alert"><strong>@_result.Summary.NeedsReviewCount</strong><span>需重新確認</span></div>
+        <div><strong>@_result.Summary.FullLeaveCount</strong><span>全日請假</span></div>
+        <div><strong>@_result.Summary.ExemptedCount</strong><span>豁免</span></div>
+    </section>
+
+    <div class="grid-shell review-grid">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>日期</th><th>員工</th><th>部門／班別</th><th>認列上班</th><th>認列下班</th>
+                    <th>遲到</th><th>早退</th><th>超時</th><th>缺卡／缺勤</th><th>請假</th><th>豁免／留停</th><th>狀態</th><th>檢核結案</th><th>明細</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in _result.Items)
+                {
+                    <tr class="@(item.IsAnomaly ? "anomaly-row" : null)">
+                        <td>@item.WorkDate.ToString("yyyy/MM/dd")<div class="muted">@Weekday(item.WorkDate)</div></td>
+                        <td>@item.EmployeeNumber<div>@item.EmployeeName</div></td>
+                        <td>@item.DepartmentName<div class="muted">@(item.ShiftName ?? "未指派班別")</div></td>
+                        <td class="@(item.IsLate ? "anomaly-time" : null)">@ClockText(item.EffectiveClockInLocalTime, item.MissingClockIn)</td>
+                        <td class="@ClockOutCss(item)">@ClockText(item.EffectiveClockOutLocalTime, item.MissingClockOut)</td>
+                        <td>@Minutes(item.LateMinutes)</td>
+                        <td>@Minutes(item.EarlyLeaveMinutes)</td>
+                        <td>
+                            @if (item.OverstayLevel == AttendanceReviewOverstayLevel.PotentialUnreportedOvertime)
+                            {
+                                <strong class="anomaly-time">@OverstayText(item.OverstayMinutes)</strong>
+                            }
+                            else if (item.OverstayLevel == AttendanceReviewOverstayLevel.ExtendedStay)
+                            {
+                                <strong class="overstay-warning">@OverstayText(item.OverstayMinutes)</strong>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                            @if (item.OvertimeRequest.State != AttendanceReviewOvertimeRequestState.NoRequest)
+                            {
+                                <div class="muted">@OvertimeRequestText(item.OvertimeRequest)</div>
+                            }
+                        </td>
+                        <td>
+                            @if (item.MissingClockIn || item.MissingClockOut)
+                            {
+                                <strong class="anomaly-time">@MissingPunchText(item)</strong>
+                            }
+                            @if (item.MissingMinutes > 0)
+                            {
+                                <div>@item.MissingMinutes 分鐘</div>
+                            }
+                            @if (!item.MissingClockIn && !item.MissingClockOut && item.MissingMinutes == 0)
+                            {
+                                <span>—</span>
+                            }
+                        </td>
+                        <td>
+                            @if (item.ApprovedLeaveMinutes > 0)
+                            {
+                                <span>@LeaveCoverageLabel(item.LeaveCoverageStatus) @item.ApprovedLeaveMinutes 分鐘</span>
+                                @foreach (var leave in item.LeaveItems)
+                                {
+                                    <div><a href="@($"/leave-requests/{leave.LeaveRequestId}")">@leave.LeaveTypeName</a></div>
+                                }
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                            @if (item.WorkedDuringApprovedLeaveMinutes > 0)
+                            {
+                                <div class="anomaly-time">請假期間出勤 @item.WorkedDuringApprovedLeaveMinutes 分鐘</div>
+                            }
+                        </td>
+                        <td>
+                            @if (item.IsAttendanceExempted)
+                            {
+                                <span>出勤豁免 @item.AttendanceExceptionMinutes 分鐘</span>
+                            }
+                            else if (item.IsEmploymentSuspended)
+                            {
+                                <span>留職停薪</span>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </td>
+                        <td>
+                            @foreach (var badge in StatusBadges(item))
+                            {
+                                <span class="status-badge @badge.Css">@badge.Text</span>
+                            }
+                            <NonWorkingPunchEvidenceView Evidence="item.PunchEvidence" Links="item.OvertimeLinks" Date="item.WorkDate" />
+                        </td>
+                        <td>
+                            @if (item.ReviewItems.Count == 0)
+                            {
+                                <span>—</span>
+                            }
+                            @foreach (var review in item.ReviewItems)
+                            {
+                                <div class="review-resolution-item">
+                                    <span class="status-badge @ReviewStateCss(review.ReviewState)">
+                                        @AnomalyLabel(review.AnomalyType)：@(review.AnomalyType == AttendanceReviewAnomalyType.NonWorkingDayPunch && review.ReviewState == AttendanceReviewState.Resolved ? NonWorkingDayAttendanceDisplay.Resolved : ReviewStateLabel(review.ReviewState))
+                                    </span>
+                                    @if (review.Reason.HasValue)
+                                    {
+                                        <div>@ReasonLabel(review.Reason.Value)</div>
+                                        @if (review.Reason == AttendanceReviewResolutionReason.ConfirmedOvertimeWork)
+                                        {
+                                            <div class="muted">僅為出勤檢核，不等同正式加班申請、薪資、補休或加班費認定。</div>
+                                        }
+                                    }
+                                    @if (review.HasOvertimeResolutionConflict)
+                                    {
+                                        <div class="anomaly-time">加班申請與既有異常結案結果不一致，需重新確認</div>
+                                    }
+                                    @if (review.ReviewState is AttendanceReviewState.Pending or AttendanceReviewState.Reopened)
+                                    {
+                                        <FluentButton Appearance="@Appearance.Stealth"
+                                                      OnClick="@(() => OpenResolution(item, review))">處理</FluentButton>
+                                    }
+                                    else
+                                    {
+                                        <FluentButton Appearance="@Appearance.Stealth"
+                                                      OnClick="@(() => OpenHistoryAsync(review))">歷程</FluentButton>
+                                        <FluentButton Appearance="@Appearance.Stealth"
+                                                      OnClick="@(() => OpenReopen(item, review))">重新開啟</FluentButton>
+                                    }
+                                </div>
+                            }
+                            @foreach (var correction in item.CorrectionRequests)
+                            {
+                                <div class="review-resolution-item">
+                                    <span class="status-badge">@correction.PublicStatus</span>
+                                    <div><a href="/admin/attendance-requests">查看員工申請</a></div>
+                                </div>
+                            }
+                        </td>
+                        <td>@if (item.DailyAttendanceResultId != Guid.Empty) { <a href="@DailyDetailUrl(item)">查看</a> }</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <section class="content-card employee-summary" aria-label="員工摘要">
+        <h2>員工摘要</h2>
+        <div class="grid-shell">
+            <table class="data-table">
+                <thead><tr><th>員工</th><th>結果</th><th>正常</th><th>異常</th><th>遲到</th><th>早退</th><th>缺卡</th><th>延後下班</th><th>疑似未申報加班</th><th>待確認</th><th>已結案</th></tr></thead>
+                <tbody>
+                    @foreach (var employee in _result.EmployeeSummaries)
+                    {
+                        <tr>
+                            <td>@employee.EmployeeNumber — @employee.EmployeeName</td>
+                            <td>@employee.ResultCount</td><td>@employee.NormalCount</td><td>@employee.AnomalyCount</td>
+                            <td>@employee.LateCount</td><td>@employee.EarlyLeaveCount</td><td>@employee.MissingPunchCount</td>
+                            <td>@employee.ExtendedStayCount</td><td>@employee.PotentialUnreportedOvertimeCount</td>
+                            <td>@employee.PendingReviewCount</td><td>@employee.ResolvedReviewCount</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@if (_resolutionRow is not null && _resolutionItem is not null)
+{
+    <section class="content-card review-resolution-dialog" role="dialog" aria-label="出勤異常處理">
+        <h2>@(_reopening ? "重新開啟出勤異常" : "出勤異常處理")</h2>
+        <p>@_resolutionRow.EmployeeNumber — @_resolutionRow.WorkDate.ToString("yyyy/MM/dd") — @AnomalyLabel(_resolutionItem.AnomalyType)</p>
+        <p>認列上班：@ClockText(_resolutionRow.EffectiveClockInLocalTime, _resolutionRow.MissingClockIn)；認列下班：@ClockText(_resolutionRow.EffectiveClockOutLocalTime, _resolutionRow.MissingClockOut)；異常分鐘：@_resolutionItem.Minutes</p>
+        @if (!_reopening && _resolutionItem.AnomalyType is AttendanceReviewAnomalyType.ExtendedStay or AttendanceReviewAnomalyType.PotentialUnreportedOvertime)
+        {
+            <FluentMessageBar Intent="@MessageIntent.Warning">
+                結案為「確認加班」僅代表出勤檢核確認，不等同正式加班申請、薪資、補休或加班費認定。
+            </FluentMessageBar>
+        }
+        @if (!_reopening)
+        {
+            <div class="field">
+                <label for="review-resolution-reason">結案原因</label>
+                <InputSelect id="review-resolution-reason" @bind-Value="_resolutionReason">
+                    @foreach (var reason in AvailableReasons(_resolutionItem.AnomalyType))
+                    {
+                        <option value="@reason">@ReasonLabel(reason)</option>
+                    }
+                </InputSelect>
+            </div>
+        }
+        <div class="field">
+            <label for="review-resolution-note">說明</label>
+            <InputTextArea id="review-resolution-note" maxlength="1000" @bind-Value="_resolutionNote" @oninput="HandleResolutionNoteInput" />
+        </div>
+        <div class="toolbar">
+            @if (_reopening)
+            {
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_savingResolution" OnClick="ReopenAsync">確認重新開啟</FluentButton>
+            }
+            else
+            {
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_savingResolution" OnClick="ResolveAsync">確認結案</FluentButton>
+            }
+            <FluentButton Appearance="@Appearance.Outline" Disabled="_savingResolution" OnClick="CloseResolution">取消</FluentButton>
+        </div>
+    </section>
+}
+
+@if (_history.Count > 0)
+{
+    <section class="content-card" aria-label="出勤異常處理歷程">
+        <h2>處理歷程</h2>
+        <ul>
+            @foreach (var history in _history)
+            {
+                <li>@history.ActionAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm") — @HistoryActionLabel(history.Action) — @(history.Reason.HasValue ? ReasonLabel(history.Reason.Value) : "—")</li>
+            }
+        </ul>
+        <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => _history = [])">關閉歷程</FluentButton>
+    </section>
+}
+
+@code {
+    private AttendanceReviewQuery _query = new();
+    private AttendanceReviewFilterOptions _options = new([], []);
+    private AttendanceReviewResult? _result;
+    private readonly HashSet<Guid> _selectedEmployeeIds = [];
+    private Guid? _departmentId;
+    private bool _loading = true;
+    private bool _exporting;
+    private string? _message;
+    private MessageIntent _messageIntent = MessageIntent.Info;
+    private AttendanceReviewRowDto? _resolutionRow;
+    private AttendanceReviewAnomalyDto? _resolutionItem;
+    private AttendanceReviewResolutionReason _resolutionReason;
+    private string? _resolutionNote;
+    private bool _savingResolution;
+    private bool _reopening;
+    private IReadOnlyList<AttendanceReviewResolutionHistoryDto> _history = [];
+
+    private IReadOnlyList<AttendanceReviewEmployeeOption> FilteredEmployees =>
+        _options.Employees
+            .Where(item => !_departmentId.HasValue || item.DepartmentId == _departmentId.Value)
+            .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        ResetQuery();
+        try
+        {
+            _options = await AttendanceReviewService.GetFilterOptionsAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        _loading = true;
+        _message = null;
+        try
+        {
+            _query.EmployeeIds = _selectedEmployeeIds.ToArray();
+            _result = await AttendanceReviewService.SearchAsync(_query);
+        }
+        catch (Exception exception)
+        {
+            _result = null;
+            ShowError(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        if (_exporting) return;
+        _exporting = true;
+        _message = null;
+        try
+        {
+            var parameters = new List<string>
+            {
+                $"startDate={_query.StartDate:yyyy-MM-dd}",
+                $"endDate={_query.EndDate:yyyy-MM-dd}",
+                $"quickFilter={Uri.EscapeDataString(_query.QuickFilter.ToString())}",
+                $"onlyAnomalies={_query.OnlyAnomalies.ToString().ToLowerInvariant()}",
+                $"onlyPending={_query.OnlyPending.ToString().ToLowerInvariant()}"
+            };
+            if (_departmentId.HasValue)
+                parameters.Add($"departmentId={_departmentId.Value:D}");
+            parameters.AddRange(_selectedEmployeeIds
+                .OrderBy(id => id)
+                .Select(id => $"employeeId={id:D}"));
+            var url = "/api/attendance-review/export.xlsx?" + string.Join("&", parameters);
+            await JS.InvokeVoidAsync("hrSystemDownloads.download", url);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception,
+                "Attendance workbook download failed for {EmployeeCount} selected employees.",
+                _selectedEmployeeIds.Count);
+            _messageIntent = MessageIntent.Error;
+            _message = "出勤報表匯出未完成，請查閱安全的伺服器診斷紀錄。";
+        }
+        finally
+        {
+            _exporting = false;
+        }
+    }
+
+    private void OpenResolution(
+        AttendanceReviewRowDto row,
+        AttendanceReviewAnomalyDto item)
+    {
+        _resolutionRow = row;
+        _resolutionItem = item;
+        _resolutionReason = item.AnomalyType is
+            AttendanceReviewAnomalyType.ExtendedStay or
+            AttendanceReviewAnomalyType.NonWorkingDayPunch or
+            AttendanceReviewAnomalyType.PotentialUnreportedOvertime
+                ? AttendanceReviewResolutionReason.NonWorkActivity
+                : AttendanceReviewResolutionReason.ConfirmedAttendance;
+        _resolutionNote = null;
+        _reopening = false;
+        _history = [];
+    }
+
+    private void OpenReopen(
+        AttendanceReviewRowDto row,
+        AttendanceReviewAnomalyDto item)
+    {
+        _resolutionRow = row;
+        _resolutionItem = item;
+        _resolutionNote = null;
+        _reopening = true;
+        _history = [];
+    }
+
+    private void CloseResolution()
+    {
+        _resolutionRow = null;
+        _resolutionItem = null;
+        _resolutionNote = null;
+        _reopening = false;
+    }
+
+    private void HandleResolutionNoteInput(ChangeEventArgs e) =>
+        _resolutionNote = e.Value?.ToString() ?? string.Empty;
+
+    private async Task ResolveAsync()
+    {
+        if (_resolutionRow is null || _resolutionItem is null) return;
+        _savingResolution = true;
+        try
+        {
+            await AttendanceReviewService.ResolveAsync(new(
+                _resolutionRow.DailyAttendanceResultId,
+                _resolutionItem.AnomalyType,
+                _resolutionItem.SourceFingerprint,
+                _resolutionReason,
+                _resolutionNote,
+                _resolutionItem.RowVersion)
+            { EmployeeId = _resolutionRow.EmployeeId, WorkDate = _resolutionRow.WorkDate });
+            CloseResolution();
+            await SearchAsync();
+            _messageIntent = MessageIntent.Success;
+            _message = "出勤異常已結案。";
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+        finally
+        {
+            _savingResolution = false;
+        }
+    }
+
+    private async Task ReopenAsync()
+    {
+        var item = _resolutionItem;
+        if (item is null) return;
+        if (!item.ResolutionId.HasValue || string.IsNullOrWhiteSpace(item.RowVersion))
+            return;
+        try
+        {
+            await AttendanceReviewService.ReopenAsync(new(
+                item.ResolutionId.Value, item.RowVersion, _resolutionNote));
+            CloseResolution();
+            await SearchAsync();
+            _messageIntent = MessageIntent.Success;
+            _message = "出勤異常已重新開啟，可再次選擇正確原因結案。";
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+    }
+
+    private async Task OpenHistoryAsync(AttendanceReviewAnomalyDto item)
+    {
+        if (!item.ResolutionId.HasValue) return;
+        try
+        {
+            _history = await AttendanceReviewService.GetHistoryAsync(
+                item.ResolutionId.Value);
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+    }
+
+    private void Reset()
+    {
+        ResetQuery();
+        _departmentId = null;
+        _selectedEmployeeIds.Clear();
+        _result = null;
+        _message = null;
+    }
+
+    private void ResetQuery()
+    {
+        var today = DateOnly.FromDateTime(
+            TaipeiTime.ToLocalDateTime(TimeProvider.GetUtcNow()));
+        _query = new AttendanceReviewQuery
+        {
+            StartDate = today,
+            EndDate = today,
+            SortBy = AttendanceReviewSortField.WorkDate,
+            SortDirection = AttendanceReviewSortDirection.Descending
+        };
+    }
+
+    private void SelectFilteredEmployees()
+    {
+        foreach (var employee in FilteredEmployees)
+        {
+            _selectedEmployeeIds.Add(employee.EmployeeId);
+        }
+    }
+
+    private void ClearEmployees() => _selectedEmployeeIds.Clear();
+
+    private void ToggleEmployee(Guid employeeId, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            _selectedEmployeeIds.Add(employeeId);
+        }
+        else
+        {
+            _selectedEmployeeIds.Remove(employeeId);
+        }
+    }
+
+    private void ShowError(Exception exception)
+    {
+        _messageIntent = MessageIntent.Error;
+        _message = exception is ApplicationValidationException or ForbiddenAccessException
+            ? exception.Message
+            : "出勤檢核查詢未完成，未顯示資料庫或系統細節。";
+    }
+
+    private static string ClockText(DateTime? value, bool missing) =>
+        missing ? "缺卡" : value?.ToString("HH:mm") ?? "—";
+
+    private static string Minutes(int value) => value > 0 ? $"{value} 分鐘" : "—";
+
+    private static string ReviewStateLabel(AttendanceReviewState state) => state switch
+    {
+        AttendanceReviewState.Pending => "待確認",
+        AttendanceReviewState.Resolved => "已結案",
+        AttendanceReviewState.NeedsReview => "需重新確認",
+        AttendanceReviewState.Reopened => "已重新開啟",
+        _ => "未知"
+    };
+
+    private static string ReviewStateCss(AttendanceReviewState state) => state switch
+    {
+        AttendanceReviewState.Resolved => "success",
+        AttendanceReviewState.Pending => "warning",
+        _ => "danger"
+    };
+
+    private static string AnomalyLabel(AttendanceReviewAnomalyType type) => type switch
+    {
+        AttendanceReviewAnomalyType.Late => "遲到",
+        AttendanceReviewAnomalyType.NonWorkingDayPunch => NonWorkingDayAttendanceDisplay.Presence,
+        AttendanceReviewAnomalyType.EarlyLeave => "早退",
+        AttendanceReviewAnomalyType.MissingClockIn => "上班缺卡",
+        AttendanceReviewAnomalyType.MissingClockOut => "下班缺卡",
+        AttendanceReviewAnomalyType.MissingBoth => "上下班缺卡",
+        AttendanceReviewAnomalyType.ExtendedStay => "延後下班",
+        AttendanceReviewAnomalyType.PotentialUnreportedOvertime => "疑似未申報加班",
+        _ => "出勤異常"
+    };
+
+    private static IReadOnlyList<AttendanceReviewResolutionReason> AvailableReasons(
+        AttendanceReviewAnomalyType type) => type == AttendanceReviewAnomalyType.NonWorkingDayPunch
+        ? [AttendanceReviewResolutionReason.NonWorkActivity, AttendanceReviewResolutionReason.PersonalReason,
+            AttendanceReviewResolutionReason.IncorrectPunch, AttendanceReviewResolutionReason.Other]
+        : type is
+            AttendanceReviewAnomalyType.ExtendedStay or
+            AttendanceReviewAnomalyType.PotentialUnreportedOvertime
+        ?
+        [
+            AttendanceReviewResolutionReason.ConfirmedOvertimeWork,
+            AttendanceReviewResolutionReason.NonWorkActivity,
+            AttendanceReviewResolutionReason.PersonalReason,
+            AttendanceReviewResolutionReason.WaitingForTransportation,
+            AttendanceReviewResolutionReason.ReturnedToOfficeLater,
+            AttendanceReviewResolutionReason.ForgotToClockOutEarlier,
+            AttendanceReviewResolutionReason.IncorrectPunch,
+            AttendanceReviewResolutionReason.Other
+        ]
+        :
+        [
+            AttendanceReviewResolutionReason.ConfirmedAttendance,
+            AttendanceReviewResolutionReason.ApprovedLeave,
+            AttendanceReviewResolutionReason.AuthorizedAdjustment,
+            AttendanceReviewResolutionReason.AttendanceException,
+            AttendanceReviewResolutionReason.DataCorrectionRequired,
+            AttendanceReviewResolutionReason.IncorrectPunch,
+            AttendanceReviewResolutionReason.Other
+        ];
+
+    private static string ReasonLabel(AttendanceReviewResolutionReason reason) => reason switch
+    {
+        AttendanceReviewResolutionReason.ConfirmedAttendance => "確認出勤狀況",
+        AttendanceReviewResolutionReason.ApprovedLeave => "已有核准請假",
+        AttendanceReviewResolutionReason.AuthorizedAdjustment => "已有核准調整",
+        AttendanceReviewResolutionReason.AttendanceException => "出勤豁免",
+        AttendanceReviewResolutionReason.DataCorrectionRequired => "資料待修正",
+        AttendanceReviewResolutionReason.ConfirmedOvertimeWork => "確認為加班留置",
+        AttendanceReviewResolutionReason.NonWorkActivity => "非工作活動",
+        AttendanceReviewResolutionReason.PersonalReason => "個人因素",
+        AttendanceReviewResolutionReason.WaitingForTransportation => "等候交通",
+        AttendanceReviewResolutionReason.ReturnedToOfficeLater => "離開後再次返回",
+        AttendanceReviewResolutionReason.ForgotToClockOutEarlier => "較早離開但忘記打卡",
+        AttendanceReviewResolutionReason.IncorrectPunch => "打卡資料有誤",
+        AttendanceReviewResolutionReason.Other => "其他",
+        _ => "未指定"
+    };
+
+    private static string HistoryActionLabel(
+        AttendanceReviewResolutionHistoryAction action) => action switch
+    {
+        AttendanceReviewResolutionHistoryAction.Created => "建立結案紀錄",
+        AttendanceReviewResolutionHistoryAction.Resolved => "結案",
+        AttendanceReviewResolutionHistoryAction.Reopened => "重新開啟",
+        _ => "異動"
+    };
+
+    private static string OverstayText(int minutes) => minutes < 60
+        ? $"超時 {minutes} 分"
+        : minutes % 60 == 0
+            ? $"超時 {minutes / 60} 小時"
+            : $"超時 {minutes / 60} 小時 {minutes % 60} 分";
+
+    private static string OvertimeRequestText(AttendanceReviewOvertimeRequestDto value) =>
+        value.State switch
+        {
+            AttendanceReviewOvertimeRequestState.PendingRequest =>
+                $"加班申請待審核（申請 {value.RequestedMinutes} 分鐘）",
+            AttendanceReviewOvertimeRequestState.ApprovedCovered =>
+                $"已有核准加班申請（核准覆蓋 {value.ApprovedCoveredMinutes} / 實際超時 {value.ActualOverstayMinutes} 分鐘）",
+            AttendanceReviewOvertimeRequestState.ApprovedPartiallyCovered =>
+                $"核准 {value.ApprovedCoveredMinutes} / 實際超時 {value.ActualOverstayMinutes} 分鐘，超出核准範圍",
+            AttendanceReviewOvertimeRequestState.ApprovedPendingRecognition =>
+                "已核准，待實際認列",
+            AttendanceReviewOvertimeRequestState.RecognitionConfirmed =>
+                value.RecognitionReason == OvertimeRecognitionReason.NonWorkActivityExcluded
+                    ? "超出時間已確認非工作活動"
+                    : $"已認列加班 {value.RecognizedMinutes ?? 0} 分鐘" +
+                      (value.ActualOverstayMinutes > (value.RecognizedMinutes ?? 0)
+                          ? "；部分時間未認列" : string.Empty),
+            AttendanceReviewOvertimeRequestState.RecognitionNeedsReview =>
+                "出勤資料已變更或缺卡，需重新確認",
+            AttendanceReviewOvertimeRequestState.RecognitionReopened =>
+                "加班認列已重新開啟",
+            AttendanceReviewOvertimeRequestState.RejectedRequest =>
+                "加班申請已駁回",
+            _ => string.Empty
+        };
+
+    private static string? ClockOutCss(AttendanceReviewRowDto item) =>
+        item.IsEarlyLeave ||
+        item.OverstayLevel == AttendanceReviewOverstayLevel.PotentialUnreportedOvertime
+            ? "anomaly-time"
+            : item.OverstayLevel == AttendanceReviewOverstayLevel.ExtendedStay
+                ? "overstay-warning"
+                : null;
+
+    private static string MissingPunchText(AttendanceReviewRowDto item) =>
+        (item.MissingClockIn, item.MissingClockOut) switch
+        {
+            (true, true) => "上下班缺卡",
+            (true, false) => "上班缺卡",
+            _ => "下班缺卡"
+        };
+
+    private static string Weekday(DateOnly date) => date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "星期一",
+        DayOfWeek.Tuesday => "星期二",
+        DayOfWeek.Wednesday => "星期三",
+        DayOfWeek.Thursday => "星期四",
+        DayOfWeek.Friday => "星期五",
+        DayOfWeek.Saturday => "星期六",
+        _ => "星期日"
+    };
+
+    private static string LeaveCoverageLabel(string value) => value switch
+    {
+        "Full" => "全日請假",
+        "Partial" => "部分請假",
+        _ => "請假"
+    };
+
+    private static IReadOnlyList<(string Text, string Css)> StatusBadges(
+        AttendanceReviewRowDto item)
+    {
+        var badges = new List<(string, string)>();
+        if (!item.IsRequiredWorkday) badges.Add(("非工作日", "neutral"));
+        if (item.IsEmploymentSuspended) badges.Add(("留職停薪", "neutral"));
+        if (item.IsAttendanceExempted) badges.Add(("出勤豁免", "success"));
+        if (item.LeaveCoverageStatus == "Full") badges.Add(("全日請假", "success"));
+        if (item.LeaveCoverageStatus == "Partial") badges.Add(("部分請假", "info"));
+        if (item.IsLate) badges.Add(("遲到", "danger"));
+        if (item.IsEarlyLeave) badges.Add(("早退", "danger"));
+        if (item.MissingClockIn || item.MissingClockOut) badges.Add(("缺卡", "danger"));
+        if (item.MissingMinutes > 0) badges.Add(("缺勤", "danger"));
+        if (item.WorkedDuringApprovedLeaveMinutes > 0) badges.Add(("請假期間出勤", "warning"));
+        if (item.OverstayLevel == AttendanceReviewOverstayLevel.ExtendedStay)
+            badges.Add(("延後下班", "warning"));
+        if (item.OverstayLevel == AttendanceReviewOverstayLevel.PotentialUnreportedOvertime)
+            badges.Add(("疑似未申報加班", "danger"));
+        if (item.Status == "NoShift") badges.Add(("無班別", "danger"));
+        if (item.Status == "AmbiguousPunch") badges.Add(("打卡不明", "danger"));
+        if (badges.Count == 0) badges.Add(("正常", "success"));
+        return badges;
+    }
+
+    private static string DailyDetailUrl(AttendanceReviewRowDto item) =>
+        $"/attendance/daily?dateFrom={item.WorkDate:yyyy-MM-dd}" +
+        $"&dateTo={item.WorkDate:yyyy-MM-dd}" +
+        $"&employeeId={item.EmployeeId}" +
+        $"&resultId={item.DailyAttendanceResultId}";
+}

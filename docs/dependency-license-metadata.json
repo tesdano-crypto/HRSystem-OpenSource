@@ -1,0 +1,1519 @@
+[
+  {
+    "package": "AngleSharp",
+    "version": "1.5.2",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "AngleSharp.Css",
+    "version": "1.0.0-beta.224",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "AngleSharp.Diffing",
+    "version": "1.1.1",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Azure.Core",
+    "version": "1.47.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Azure.Identity",
+    "version": "1.14.2",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "bunit",
+    "version": "2.8.6",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "package": "ClosedXML",
+    "version": "0.105.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "ClosedXML.Parser",
+    "version": "2.0.0",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "coverlet.collector",
+    "version": "10.0.1",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "DocumentFormat.OpenXml",
+    "version": "3.1.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "DocumentFormat.OpenXml.Framework",
+    "version": "3.1.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "ExcelNumberFormat",
+    "version": "1.1.0",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Humanizer.Core",
+    "version": "2.14.1",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.AspNetCore.App.Internal.Assets",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Web"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.AspNetCore.Components.WebAssembly",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "Microsoft.AspNetCore.Components.WebAssembly.Authentication",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "Microsoft.AspNetCore.Cryptography.Internal",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.AspNetCore.Cryptography.KeyDerivation",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.AspNetCore.Identity.EntityFrameworkCore",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.AspNetCore.Mvc.Testing",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.AspNetCore.TestHost",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Bcl.AsyncInterfaces",
+    "version": "8.0.0",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Bcl.Cryptography",
+    "version": "9.0.4",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Build.Framework",
+    "version": "18.0.2",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "notices/THIRDPARTYNOTICES.txt"
+    ]
+  },
+  {
+    "package": "Microsoft.CodeAnalysis.Analyzers",
+    "version": "3.11.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "ThirdPartyNotices.txt"
+    ]
+  },
+  {
+    "package": "Microsoft.CodeAnalysis.Common",
+    "version": "5.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "ThirdPartyNotices.rtf"
+    ]
+  },
+  {
+    "package": "Microsoft.CodeAnalysis.CSharp",
+    "version": "5.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "ThirdPartyNotices.rtf"
+    ]
+  },
+  {
+    "package": "Microsoft.CodeAnalysis.CSharp.Workspaces",
+    "version": "5.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "ThirdPartyNotices.rtf"
+    ]
+  },
+  {
+    "package": "Microsoft.CodeAnalysis.Workspaces.Common",
+    "version": "5.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "ThirdPartyNotices.rtf"
+    ]
+  },
+  {
+    "package": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
+    "version": "5.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "ThirdPartyNotices.rtf"
+    ]
+  },
+  {
+    "package": "Microsoft.CodeCoverage",
+    "version": "18.8.1",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "ThirdPartyNotices.txt",
+      "build/netstandard2.0/ThirdPartyNotices.txt"
+    ]
+  },
+  {
+    "package": "Microsoft.Data.SqlClient",
+    "version": "6.1.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.Data.SqlClient.SNI.runtime",
+    "version": "6.0.2",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "LICENSE.txt",
+    "license_type": "file",
+    "url": "https://aka.ms/deprecateLicenseUrl",
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "package": "Microsoft.EntityFrameworkCore",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.EntityFrameworkCore.Abstractions",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.EntityFrameworkCore.Analyzers",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.EntityFrameworkCore.Design",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.EntityFrameworkCore.InMemory",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.EntityFrameworkCore.Relational",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.EntityFrameworkCore.SqlServer",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.Extensions.Caching.Abstractions",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Caching.Memory",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.Abstractions",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Configuration.Binder",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.DependencyInjection",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.DependencyInjection.Abstractions",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.DependencyModel",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Diagnostics",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Diagnostics.Abstractions",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Identity.Core",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Identity.Stores",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Logging.Abstractions",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Options",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Options.ConfigurationExtensions",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.Extensions.Primitives",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.Application",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "Microsoft.FluentUI.AspNetCore.Components",
+    "version": "4.14.3",
+    "projects": [
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.FluentUI.AspNetCore.Components.Icons",
+    "version": "4.14.3",
+    "projects": [
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.Identity.Client",
+    "version": "4.73.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.Identity.Client.Extensions.Msal",
+    "version": "4.73.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.IdentityModel.Abstractions",
+    "version": "7.7.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.IdentityModel.JsonWebTokens",
+    "version": "7.7.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.IdentityModel.Logging",
+    "version": "7.7.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.IdentityModel.Protocols",
+    "version": "7.7.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.IdentityModel.Protocols.OpenIdConnect",
+    "version": "7.7.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.IdentityModel.Tokens",
+    "version": "7.7.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.JSInterop.WebAssembly",
+    "version": "10.0.10",
+    "projects": [
+      "HRSystem.IntegrationTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "THIRD-PARTY-NOTICES.txt"
+    ]
+  },
+  {
+    "package": "Microsoft.NET.Test.Sdk",
+    "version": "18.8.1",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.SqlServer.Server",
+    "version": "1.0.0",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.TestPlatform.ObjectModel",
+    "version": "18.8.1",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "Microsoft.TestPlatform.TestHost",
+    "version": "18.8.1",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "ThirdPartyNotices.txt"
+    ]
+  },
+  {
+    "package": "Microsoft.VisualStudio.SolutionPersistence",
+    "version": "1.0.52",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "NOTICE"
+    ]
+  },
+  {
+    "package": "Mono.TextTemplating",
+    "version": "3.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.txt/LICENSE"
+    ]
+  },
+  {
+    "package": "Newtonsoft.Json",
+    "version": "13.0.3",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.md"
+    ]
+  },
+  {
+    "package": "RBush.Signed",
+    "version": "4.0.0",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "SixLabors.Fonts",
+    "version": "1.0.0",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "Apache-2.0",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/Apache-2.0",
+    "license_files": []
+  },
+  {
+    "package": "System.ClientModel",
+    "version": "1.5.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "System.CodeDom",
+    "version": "6.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Composition",
+    "version": "9.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Composition.AttributedModel",
+    "version": "9.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Composition.Convention",
+    "version": "9.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Composition.Hosting",
+    "version": "9.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Composition.Runtime",
+    "version": "9.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Composition.TypedParts",
+    "version": "9.0.0",
+    "projects": [
+      "HRSystem.Infrastructure",
+      "HRSystem.Web"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Configuration.ConfigurationManager",
+    "version": "9.0.4",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Diagnostics.EventLog",
+    "version": "9.0.4",
+    "projects": [
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.IdentityModel.Tokens.Jwt",
+    "version": "7.7.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": []
+  },
+  {
+    "package": "System.IO.Packaging",
+    "version": "8.0.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Memory.Data",
+    "version": "8.0.1",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Security.Cryptography.Pkcs",
+    "version": "9.0.4",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "System.Security.Cryptography.ProtectedData",
+    "version": "9.0.4",
+    "projects": [
+      "HRSystem.AttendanceImport.Job",
+      "HRSystem.Infrastructure",
+      "HRSystem.Web",
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "MIT",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/MIT",
+    "license_files": [
+      "LICENSE.TXT",
+      "THIRD-PARTY-NOTICES.TXT"
+    ]
+  },
+  {
+    "package": "xunit",
+    "version": "2.9.3",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "Apache-2.0",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/Apache-2.0",
+    "license_files": []
+  },
+  {
+    "package": "xunit.abstractions",
+    "version": "2.0.3",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "UNKNOWN",
+    "license_type": "missing",
+    "url": "https://raw.githubusercontent.com/xunit/xunit/master/license.txt",
+    "license_files": []
+  },
+  {
+    "package": "xunit.analyzers",
+    "version": "1.18.0",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "Apache-2.0",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/Apache-2.0",
+    "license_files": []
+  },
+  {
+    "package": "xunit.assert",
+    "version": "2.9.3",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "Apache-2.0",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/Apache-2.0",
+    "license_files": []
+  },
+  {
+    "package": "xunit.core",
+    "version": "2.9.3",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "Apache-2.0",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/Apache-2.0",
+    "license_files": []
+  },
+  {
+    "package": "xunit.extensibility.core",
+    "version": "2.9.3",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "Apache-2.0",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/Apache-2.0",
+    "license_files": []
+  },
+  {
+    "package": "xunit.extensibility.execution",
+    "version": "2.9.3",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": false,
+    "license": "Apache-2.0",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/Apache-2.0",
+    "license_files": []
+  },
+  {
+    "package": "xunit.runner.visualstudio",
+    "version": "3.1.5",
+    "projects": [
+      "HRSystem.IntegrationTests",
+      "HRSystem.UnitTests"
+    ],
+    "direct": true,
+    "license": "Apache-2.0",
+    "license_type": "expression",
+    "url": "https://licenses.nuget.org/Apache-2.0",
+    "license_files": []
+  }
+]

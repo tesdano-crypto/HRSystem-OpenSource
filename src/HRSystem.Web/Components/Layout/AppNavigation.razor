@@ -1,0 +1,182 @@
+@implements IDisposable
+@inject NavigationManager Navigation
+
+<nav class="app-navigation" aria-label="主要功能">
+    <div class="navigation-title">主要功能</div>
+    @foreach (var section in _visibleSections)
+    {
+        var expanded = string.Equals(_expandedSectionId, section.Id, StringComparison.Ordinal);
+        var active = string.Equals(_activeSectionId, section.Id, StringComparison.Ordinal);
+        <section class="navigation-section @(active ? "is-active" : null)" data-section-id="@section.Id">
+            <button type="button"
+                    class="navigation-section-toggle"
+                    aria-expanded="@expanded.ToString().ToLowerInvariant()"
+                    aria-controls="@SectionContentId(section.Id)"
+                    data-active="@active.ToString().ToLowerInvariant()"
+                    @onclick="() => ToggleSection(section.Id)">
+                <span class="navigation-section-icon" aria-hidden="true">
+                    @switch (section.Icon)
+                    {
+                        case AppNavigationIcon.Home:
+                            <FluentIcon Value="@(new Icons.Regular.Size20.Home())" />
+                            break;
+                        case AppNavigationIcon.Attendance:
+                            <FluentIcon Value="@(new Icons.Regular.Size20.Clock())" />
+                            break;
+                        case AppNavigationIcon.Overtime:
+                            <FluentIcon Value="@(new Icons.Regular.Size20.Timer())" />
+                            break;
+                        case AppNavigationIcon.Leave:
+                            <FluentIcon Value="@(new Icons.Regular.Size20.Calendar())" />
+                            break;
+                        case AppNavigationIcon.People:
+                            <FluentIcon Value="@(new Icons.Regular.Size20.People())" />
+                            break;
+                        case AppNavigationIcon.Settings:
+                            <FluentIcon Value="@(new Icons.Regular.Size20.Settings())" />
+                            break;
+                    }
+                </span>
+                <span class="navigation-section-label">@section.Label</span>
+                <span class="navigation-section-chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div id="@SectionContentId(section.Id)"
+                 class="navigation-section-items"
+                 role="group"
+                 aria-label="@section.Label"
+                 hidden="@(!expanded)">
+                @foreach (var item in section.Items)
+                {
+                    var itemActive = string.Equals(_activeItemRoute, item.Route, StringComparison.OrdinalIgnoreCase);
+                    <a class="navigation-item @(itemActive ? "is-active" : null)"
+                       href="@item.Route"
+                       aria-current="@(itemActive ? "page" : null)"
+                       data-navigation-route="@item.Route"
+                       @onclick="OnItemSelectedAsync">@DisplayLabel(item, User)</a>
+                }
+            </div>
+        </section>
+    }
+</nav>
+
+@code {
+    [Parameter, EditorRequired]
+    public System.Security.Claims.ClaimsPrincipal User { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback ItemSelected { get; set; }
+
+    private IReadOnlyList<AppNavigationSection> _visibleSections = [];
+    private string? _expandedSectionId;
+    private string? _activeSectionId;
+    private string? _activeItemRoute;
+    private string? _currentPath;
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += HandleLocationChanged;
+    }
+
+    protected override void OnParametersSet()
+    {
+        _visibleSections = BuildVisibleSections(User);
+        SynchronizeWithRoute();
+    }
+
+    private static IReadOnlyList<AppNavigationSection> BuildVisibleSections(
+        System.Security.Claims.ClaimsPrincipal user)
+    {
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            return [];
+        }
+
+        var hasEmployeeBinding = user.HasClaim(claim =>
+            claim.Type == HRSystem.Infrastructure.Identity.ApplicationUserClaimsPrincipalFactory.EmployeeIdClaimType);
+
+        return AppNavigationCatalog.Sections
+            .Select(section => section with
+            {
+                Items = section.Items
+                    .Where(item =>
+                        (!item.RequiresEmployeeBinding || hasEmployeeBinding) &&
+                        RolePermissions.HasPermission(user, item.RequiredPermission))
+                    .ToArray()
+            })
+            .Where(section => section.Items.Count > 0)
+            .ToArray();
+    }
+
+    private void ToggleSection(string sectionId)
+    {
+        _expandedSectionId = string.Equals(
+            _expandedSectionId,
+            sectionId,
+            StringComparison.Ordinal)
+                ? null
+                : sectionId;
+    }
+
+    private async Task OnItemSelectedAsync()
+    {
+        await ItemSelected.InvokeAsync();
+    }
+
+    private void SynchronizeWithRoute()
+    {
+        var path = new Uri(Navigation.Uri).AbsolutePath;
+        var active = _visibleSections
+            .SelectMany(section => section.Items.Select(item => (Section: section, Item: item)))
+            .Where(candidate => RouteMatches(path, candidate.Item.Route))
+            .OrderByDescending(candidate => candidate.Item.Route.Length)
+            .FirstOrDefault();
+
+        _activeSectionId = active.Section?.Id;
+        _activeItemRoute = active.Item?.Route;
+
+        if (!string.Equals(_currentPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            _expandedSectionId = _activeSectionId;
+            _currentPath = path;
+        }
+    }
+
+    private static bool RouteMatches(string path, string route)
+    {
+        if (route == "/")
+        {
+            return string.Equals(path, route, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(path, route, StringComparison.OrdinalIgnoreCase) ||
+               path.StartsWith(route + "/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string DisplayLabel(AppNavigationItem item,
+        System.Security.Claims.ClaimsPrincipal user)
+    {
+        if (!string.Equals(item.Route, "/approvals", StringComparison.Ordinal))
+            return item.Label;
+        if (RolePermissions.HasPermission(user, PolicyNames.ApprovalAct))
+            return "待簽核事項";
+        if (RolePermissions.HasPermission(user, PolicyNames.PayrollSubmitApproval))
+            return "送簽紀錄";
+        return "簽核紀錄";
+    }
+
+    private async void HandleLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        await InvokeAsync(() =>
+        {
+            SynchronizeWithRoute();
+            StateHasChanged();
+        });
+    }
+
+    private static string SectionContentId(string sectionId) => $"navigation-section-{sectionId}";
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= HandleLocationChanged;
+    }
+}

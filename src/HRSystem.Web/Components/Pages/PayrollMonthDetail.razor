@@ -1,0 +1,360 @@
+@page "/admin/payroll/periods/{PeriodId:guid}"
+@attribute [Authorize(Policy = PolicyNames.PayrollView)]
+@using HRSystem.Application.Abstractions.Security
+@using HRSystem.Application.Approvals
+@using HRSystem.Application.Payroll
+@using HRSystem.Domain.Approvals
+@using HRSystem.Domain.Payroll
+@inject IPayrollService Payroll
+@inject IPayrollFinalizationService Finalizations
+@inject IApprovalService Approvals
+@inject ICurrentUser CurrentUser
+
+<PageTitle>本月薪資工作台</PageTitle>
+<PageHeader Title="本月薪資工作台"
+    Description="依當月有效設定建立試算；重新試算會保留歷史版本。" />
+<p><a href="/admin/payroll">← 返回薪資月份</a></p>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar>
+}
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_month is not null)
+{
+    <section class="content-card">
+        <h2>@_month.Year/@_month.Month.ToString("00") 薪資</h2>
+        <p>任職符合 @_month.EligibleEmployeeCount 人；已試算 @_month.CurrentEmployeeCount 人；已完成 @_month.ResolvedCount 人；待處理 @_month.BlockingCount 人。</p>
+        <p>目前版本 @_month.LatestRevision；應發總額 @_month.GrossPay.ToString("N0")；扣款總額 @_month.TotalDeductions.ToString("N0")；實領總額 @_month.NetPay.ToString("N0")。</p>
+        <p>正式結算：<strong>@(_finalization is null ? "尚未結算" : "已正式結算")</strong></p>
+        @if (_finalization is not null)
+        {
+            <p>結算時間 @_finalization.FinalizedAtUtc.ToLocalTime()；結算人 @_finalization.FinalizedByDisplayName；正式版本 V@_finalization.FinalVersionNumber。</p>
+            <p>核准人 @_finalization.ApprovedByDisplayName；核准時間 @_finalization.ApprovedAtUtc.ToLocalTime()；版本識別碼 @_finalization.Fingerprint[..8]。</p>
+            <p><a href="/admin/payroll/finalizations/@_finalization.Id">查看結算摘要與薪資單</a></p>
+        }
+        @if (_approval is not null)
+        {
+            <p>薪資簽核：@ApprovalDisplay.Status(_approval.Status)
+            @if (!ApprovalMatchesCurrent)
+            { <span>（核准後資料已變更，必須重新送簽）</span> }
+            else if (_approval.Status == ApprovalStatus.Approved)
+            { <span>（已核准，等待正式結算）</span> }
+            </p>
+        }
+    </section>
+
+    @if (_canManage && _finalization is null)
+    {
+        <section class="content-card">
+            <h2>薪資試算</h2>
+            @if (_month.CurrentEmployeeCount == 0)
+            {
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy"
+                    OnClick="CreateInitialAsync">建立全員薪資試算</FluentButton>
+            }
+            <FluentButton Disabled="_busy" OnClick="RecalculateChangedAsync">重新試算有變更的人</FluentButton>
+            <p class="field-hint">舊快照與計算證據會永久保留；只有成功的新快照會成為當前版本。</p>
+        </section>
+
+        <section class="content-card">
+            <h2>本月臨時應發／扣款</h2>
+            @if ((_month.Adjustments ?? []).Count == 0)
+            {
+                <p>本月尚無臨時項目。可從薪資月份頁面新增。</p>
+            }
+            else
+            {
+                <table class="data-table">
+                    <thead><tr><th>員工</th><th>項目</th><th>類型</th><th>金額</th><th>說明</th><th>操作</th></tr></thead>
+                    <tbody>
+                    @foreach (var adjustment in _month.Adjustments ?? [])
+                    {
+                        <tr>
+                            <td>@adjustment.EmployeeCode — @adjustment.EmployeeName</td>
+                            <td>@PayrollDisplay.Component(adjustment.ComponentCode, adjustment.ComponentName)</td>
+                            <td>@PayrollDisplay.Direction(adjustment.Direction)</td>
+                            <td>@adjustment.Amount.ToString("N0")</td>
+                            <td>@adjustment.Reason</td>
+                            <td><FluentButton Disabled="_busy" OnClick="@(() => EditAdjustment(adjustment))">編輯</FluentButton>
+                                <FluentButton Disabled="_busy" OnClick="@(() => RemoveAdjustmentAsync(adjustment))">刪除</FluentButton></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+            @if (_editingAdjustment is not null)
+            {
+                <h3>編輯臨時項目</h3>
+                <div class="form-grid">
+                    <div class="field"><label for="month-adjustment-direction">類型</label>
+                        <InputSelect id="month-adjustment-direction" @bind-Value="_editDirection">
+                            @foreach (var direction in Enum.GetValues<PayrollAdjustmentDirection>())
+                            { <option value="@direction">@PayrollDisplay.Direction(direction)</option> }
+                        </InputSelect>
+                    </div>
+                    <div class="field"><label for="month-adjustment-amount">金額</label><InputNumber id="month-adjustment-amount" @bind-Value="_editAmount" /></div>
+                    <div class="field"><label for="month-adjustment-reason">說明</label><InputText id="month-adjustment-reason" @bind-Value="_editReason" /></div>
+                </div>
+                <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="UpdateAdjustmentAsync">儲存並標記需重新試算</FluentButton>
+                <FluentButton Disabled="_busy" OnClick="CancelEdit">取消</FluentButton>
+            }
+        </section>
+    }
+
+    @if (_canSubmit && _finalization is null)
+    {
+        <section class="content-card">
+            <h2>送出薪資簽核</h2>
+            <p>只有當前全員快照均完成且來源未變更時才能送簽。</p>
+            <div class="field"><label for="payroll-month-approver">簽核人</label>
+                <InputSelect id="payroll-month-approver" @bind-Value="_approverUserId">
+                    <option value="">請選擇</option>
+                    @foreach (var actor in _approvers)
+                    { <option value="@actor.UserId">@actor.DisplayName</option> }
+                </InputSelect>
+            </div>
+            <FluentButton Appearance="@Appearance.Accent" Disabled="SubmitDisabled"
+                OnClick="SubmitApprovalAsync">送出薪資簽核</FluentButton>
+            @if (_month.BlockingCount > 0)
+            {
+                <p class="field-hint">尚有 @_month.BlockingCount 位員工待處理，完成試算後才能送簽。</p>
+            }
+        </section>
+    }
+
+    @if (_canFinalize && _finalization is null)
+    {
+        <section class="content-card">
+            <h2>正式結算</h2>
+            <p>正式結算後，本月試算、臨時項目與重新送簽都會鎖定；薪資單將固定引用目前核准版本。</p>
+            <FluentButton Appearance="@Appearance.Accent" Disabled="FinalizeDisabled"
+                OnClick="@(() => _showFinalizeConfirmation = true)">正式結算薪資</FluentButton>
+        </section>
+    }
+
+    @if (_showFinalizeConfirmation)
+    {
+        <div class="content-card" role="dialog" aria-modal="true" aria-labelledby="finalize-title">
+            <h2 id="finalize-title">確認正式結算</h2>
+            <p>確定要正式結算 @_month.Year 年 @_month.Month 月薪資？</p>
+            <p>員工 @_month.CurrentEmployeeCount 人；應發總額 @_month.GrossPay.ToString("N0")；扣款總額 @_month.TotalDeductions.ToString("N0")；實領總額 @_month.NetPay.ToString("N0")。</p>
+            <p>核准人 @ApprovalDeciderDisplayName；核准時間 @(_approval?.DecisionAtUtc?.ToLocalTime().ToString() ?? "—")。</p>
+            <p><strong>正式結算後，本月份薪資資料將鎖定，不能再重新試算或修改。</strong></p>
+            <p>此動作不可由一般操作復原。</p>
+            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="FinalizeAsync">確認結算</FluentButton>
+            <FluentButton Disabled="_busy" OnClick="@(() => _showFinalizeConfirmation = false)">取消</FluentButton>
+        </div>
+    }
+
+    <section class="content-card">
+        <h2>本月員工試算</h2>
+        <table class="data-table">
+            <thead><tr><th>員工</th><th>目前版本</th><th>最後試算</th><th>狀態</th><th>應發</th><th>扣款</th><th>實領</th><th>操作</th></tr></thead>
+            <tbody>
+            @foreach (var item in _month.Employees)
+            {
+                <tr>
+                    <td>@item.Snapshot.EmployeeCode — @item.Snapshot.EmployeeName</td>
+                    <td>@item.RevisionNumber</td>
+                    <td>@item.UpdatedAtUtc.ToLocalTime()</td>
+                    <td>@PayrollDisplay.CalculationStatus(item.IsSourceChanged ? PayrollCalculationStatus.SourceChanged : item.Snapshot.TotalCalculationStatus)</td>
+                    <td>@item.Snapshot.GrossPay.ToString("N0")</td>
+                    <td>@item.Snapshot.TotalDeductions.ToString("N0")</td>
+                    <td>@(item.Snapshot.NetPay?.ToString("N0") ?? "—")</td>
+                    <td>
+                        <a href="/admin/payroll/runs/@item.RunId">查看快照</a>
+                        @if (_canManage && _finalization is null)
+                        {
+                            <FluentButton Disabled="_busy" OnClick="@(() => RecalculateEmployeeAsync(item.EmployeeId))">重新試算</FluentButton>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid PeriodId { get; set; }
+    private bool _loading = true, _busy, _canManage, _canSubmit, _canFinalize,
+        _showFinalizeConfirmation;
+    private PayrollMonthDto? _month;
+    private string? _message;
+    private MessageIntent _intent = MessageIntent.Info;
+    private IReadOnlyList<ApprovalActorDto> _approvers = [];
+    private ApprovalDto? _approval;
+    private PayrollFinalizationDto? _finalization;
+    private string _approverUserId = string.Empty;
+    private PayrollAdjustmentDto? _editingAdjustment;
+    private decimal _editAmount;
+    private PayrollAdjustmentDirection _editDirection;
+    private string _editReason = string.Empty;
+    private bool ApprovalMatchesCurrent => _approval is not null && _month is not null &&
+        string.Equals(_approval.SourceFingerprint, _month.Fingerprint,
+            StringComparison.OrdinalIgnoreCase);
+    private string ApprovalDeciderDisplayName =>
+        _approvers.FirstOrDefault(x => x.UserId == _approval?.DecisionByUserId)?.DisplayName ??
+        _approval?.DecisionByUserId ?? "—";
+    private bool SubmitDisabled => _busy || _month is null ||
+        _month.BlockingCount > 0 || string.IsNullOrWhiteSpace(_approverUserId) ||
+        (ApprovalMatchesCurrent && _approval!.Status is
+            ApprovalStatus.Pending or ApprovalStatus.Approved);
+    private bool FinalizeDisabled => _busy || _month is null ||
+        _month.BlockingCount > 0 || _month.CurrentEmployeeCount != _month.EligibleEmployeeCount ||
+        _approval?.Status != ApprovalStatus.Approved || !ApprovalMatchesCurrent;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _canManage = CurrentUser.HasPermission(PolicyNames.PayrollManage);
+        _canSubmit = CurrentUser.HasPermission(PolicyNames.PayrollSubmitApproval);
+        _canFinalize = CurrentUser.HasPermission(PolicyNames.PayrollFinalize);
+        if (_canSubmit)
+        {
+            _approvers = await Approvals.GetApproversAsync(ApprovalType.Payroll);
+            _approverUserId = _approvers.FirstOrDefault()?.UserId ?? string.Empty;
+        }
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _month = await Payroll.GetMonthAsync(PeriodId);
+            _finalization = await Finalizations.GetForPeriodAsync(PeriodId);
+            if (_canSubmit || _canFinalize)
+                _approval = (await Approvals.GetListAsync()).FirstOrDefault(x =>
+                    x.ApprovalType == ApprovalType.Payroll &&
+                    x.SourceEntityType == nameof(PayrollPeriod) &&
+                    x.SourceEntityId == PeriodId.ToString());
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task FinalizeAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            _finalization = await Finalizations.FinalizeAsync(PeriodId);
+            _showFinalizeConfirmation = false;
+            _message = "本月薪資已正式結算並鎖定，薪資單已發行。";
+            _intent = MessageIntent.Success;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = PayrollDisplay.UserMessage(ex.Message);
+            _intent = MessageIntent.Error;
+        }
+        finally { _busy = false; }
+    }
+
+    private Task CreateInitialAsync() => RunBatchAsync(
+        () => Payroll.CreateInitialDraftAsync(PeriodId));
+    private Task RecalculateChangedAsync() => RunBatchAsync(
+        () => Payroll.RecalculateChangedAsync(PeriodId));
+    private Task RecalculateEmployeeAsync(Guid employeeId) => RunBatchAsync(
+        () => Payroll.RecalculateEmployeeAsync(PeriodId, employeeId));
+
+    private async Task RunBatchAsync(Func<Task<PayrollBatchResultDto>> action)
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            var result = await action();
+            _message = $"試算結果：建立 {result.Created}、已是最新 {result.AlreadyCurrent}、待設定 {result.NeedsSetup}、政策待確認 {result.PolicyPending}、待確認 {result.NeedsReview}、失敗 {result.Failed}。";
+            _intent = result.Failed == 0 ? MessageIntent.Success : MessageIntent.Warning;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = PayrollDisplay.UserMessage(ex.Message);
+            _intent = MessageIntent.Error;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SubmitApprovalAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            _approval = await Approvals.SubmitAsync(new SubmitApprovalRequest
+            {
+                ApprovalType = ApprovalType.Payroll,
+                SourceId = PeriodId,
+                ApproverUserId = _approverUserId
+            });
+            _message = $"已送出薪資簽核：{ApprovalDisplay.Status(_approval.Status)}。";
+            _intent = MessageIntent.Success;
+        }
+        catch (Exception ex)
+        {
+            _message = PayrollDisplay.UserMessage(ex.Message);
+            _intent = MessageIntent.Error;
+        }
+        finally { _busy = false; }
+    }
+
+    private void EditAdjustment(PayrollAdjustmentDto item)
+    {
+        _editingAdjustment = item;
+        _editAmount = item.Amount;
+        _editDirection = item.Direction;
+        _editReason = item.Reason;
+    }
+
+    private void CancelEdit() => _editingAdjustment = null;
+
+    private async Task UpdateAdjustmentAsync()
+    {
+        if (_busy || _editingAdjustment is null) return;
+        _busy = true;
+        try
+        {
+            await Payroll.UpdateAdjustmentAsync(_editingAdjustment.Id, _editAmount,
+                _editDirection, _editReason, _editingAdjustment.RowVersion);
+            _editingAdjustment = null;
+            _message = "臨時項目已更新，該員工已標記需重新試算。";
+            _intent = MessageIntent.Success;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = PayrollDisplay.UserMessage(ex.Message);
+            _intent = MessageIntent.Error;
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RemoveAdjustmentAsync(PayrollAdjustmentDto item)
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            await Payroll.RemoveAdjustmentAsync(item.Id, item.RowVersion);
+            _editingAdjustment = null;
+            _message = "臨時項目已刪除，該員工已標記需重新試算。";
+            _intent = MessageIntent.Success;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _message = PayrollDisplay.UserMessage(ex.Message);
+            _intent = MessageIntent.Error;
+        }
+        finally { _busy = false; }
+    }
+}

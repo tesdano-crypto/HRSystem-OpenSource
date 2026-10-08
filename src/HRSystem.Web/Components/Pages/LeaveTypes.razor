@@ -1,0 +1,204 @@
+@page "/leave-types"
+@attribute [Authorize(Policy = PolicyNames.LeaveManage)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@using HRSystem.Application.LeaveTypes
+@using HRSystem.Domain.MasterData
+@inject ILeaveTypeService LeaveTypeService
+@inject IDialogService DialogService
+@inject IToastService ToastService
+
+<PageTitle>假別設定</PageTitle>
+<PageHeader Title="假別設定" Description="管理穩定代碼、分類、計算模式及員工申請開放狀態；特殊假別仍需後續專用流程。">
+    <Actions><FluentButton Appearance="@Appearance.Accent" OnClick="StartCreate">新增假別</FluentButton></Actions>
+</PageHeader>
+
+<div class="toolbar">
+    <div class="field">
+        <label for="leave-status">啟用狀態</label>
+        <select id="leave-status" @bind="_statusFilter"><option value="all">全部</option><option value="active">啟用</option><option value="inactive">停用</option></select>
+    </div>
+    <FluentButton Appearance="@Appearance.Accent" OnClick="SearchAsync">套用篩選</FluentButton>
+</div>
+
+@if (_editing)
+{
+    <section class="editor-panel" aria-label="假別編輯表單">
+        <h2>@(_form.Id == Guid.Empty ? "新增假別" : "編輯假別")</h2>
+        <EditForm Model="_form" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator /><ValidationSummary />
+            <div class="form-grid">
+                <div class="field"><label for="leave-code">假別代碼</label><InputText id="leave-code" @bind-Value="_form.Code" disabled="@(_form.Id != Guid.Empty)" /><ValidationMessage For="@(() => _form.Code)" /></div>
+                <div class="field"><label for="leave-name">假別名稱</label><InputText id="leave-name" @bind-Value="_form.Name" /><ValidationMessage For="@(() => _form.Name)" /></div>
+                <div class="field"><label for="leave-category">分類</label><InputSelect id="leave-category" @bind-Value="_form.Category"><option value="@LeaveCategory.General">一般請假</option><option value="@LeaveCategory.SpecialCalendarLeave">特殊曆日假</option><option value="@LeaveCategory.LeaveOfAbsence">留職停薪</option></InputSelect></div>
+                <div class="field"><label for="leave-calculation">計算模式</label><InputSelect id="leave-calculation" @bind-Value="_form.CalculationMode"><option value="@LeaveCalculationMode.WorkingSchedule">依班表工作時間</option><option value="@LeaveCalculationMode.CalendarDays">連續曆日</option><option value="@LeaveCalculationMode.LeaveOfAbsence">留職停薪</option></InputSelect></div>
+                <div class="field">
+                    <label for="leave-unit">單位</label>
+                    <InputSelect id="leave-unit" @bind-Value="_form.Unit"><option value="@LeaveUnit.Hour">小時</option><option value="@LeaveUnit.Day">日</option></InputSelect>
+                </div>
+                <div class="field"><label for="leave-minimum">最小單位</label><InputNumber id="leave-minimum" @bind-Value="_form.MinimumUnit" step="0.5" /><ValidationMessage For="@(() => _form.MinimumUnit)" /></div>
+                <div class="field"><label for="leave-request-minutes">最小申請分鐘</label><InputNumber id="leave-request-minutes" @bind-Value="_form.MinimumRequestMinutes" /><ValidationMessage For="@(() => _form.MinimumRequestMinutes)" /></div>
+                <div class="field"><label for="leave-sort">顯示順序</label><InputNumber id="leave-sort" @bind-Value="_form.SortOrder" /><ValidationMessage For="@(() => _form.SortOrder)" /></div>
+                <div class="field"><label><InputCheckbox @bind-Value="_form.RequiresReason" /> 必須填寫原因</label></div>
+                <div class="field"><label><InputCheckbox @bind-Value="_form.IsPaid" /> 給薪假別</label></div>
+                <div class="field"><label><InputCheckbox @bind-Value="_form.AllowHourlyRequest" /> 允許按小時申請</label></div>
+                <div class="field"><label><InputCheckbox @bind-Value="_form.RequiresAttachment" /> 需要附件</label></div>
+                <div class="field"><label><InputCheckbox @bind-Value="_form.IsEmployeeRequestEnabled" /> 開放員工申請</label></div>
+                <div class="field full"><label for="leave-description">說明</label><InputTextArea id="leave-description" @bind-Value="_form.Description" /><ValidationMessage For="@(() => _form.Description)" /></div>
+            </div>
+            @if (_form.CalculationMode == LeaveCalculationMode.CalendarDays)
+            {
+                <FluentMessageBar Intent="@MessageIntent.Info">第一版僅支援 MATERNITY、MISCARRIAGE、PREGNANCY_BED_REST；正式啟用須使用受控初始化流程，留職停薪仍不開放。</FluentMessageBar>
+            }
+            else if (_form.CalculationMode == LeaveCalculationMode.LeaveOfAbsence)
+            {
+                <FluentMessageBar Intent="@MessageIntent.Warning">此類型需使用專用留職停薪流程。</FluentMessageBar>
+            }
+            @if (_form.RequiresAttachment)
+            {
+                <FluentMessageBar Intent="@MessageIntent.Warning">附件上傳尚未開放；需要附件的假別不會出現在員工可申請清單。</FluentMessageBar>
+            }
+            <div class="form-actions">
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="CancelEdit">取消</FluentButton>
+                <FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="_saving">儲存</FluentButton>
+            </div>
+        </EditForm>
+    </section>
+}
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else if (_result is null || _result.Items.Count == 0)
+{
+    <EmptyState />
+}
+else
+{
+    <div class="grid-shell">
+        <FluentDataGrid Items="@_result.Items.AsQueryable()" ResizableColumns="true">
+            <PropertyColumn Property="@(x => x.Code)" Title="代碼" />
+            <PropertyColumn Property="@(x => x.Name)" Title="名稱" />
+            <TemplateColumn Title="分類" Context="item">@CategoryText(item.Category)</TemplateColumn>
+            <TemplateColumn Title="計算模式" Context="item">@CalculationText(item.CalculationMode)</TemplateColumn>
+            <TemplateColumn Title="單位" Context="item">@(item.Unit == LeaveUnit.Day ? "日" : "小時")</TemplateColumn>
+            <TemplateColumn Title="按小時" Context="item">@(item.AllowHourlyRequest ? "是" : "否")</TemplateColumn>
+            <TemplateColumn Title="員工申請" Context="item">@(item.IsEmployeeRequestEnabled ? "開放" : "未開放")</TemplateColumn>
+            <TemplateColumn Title="狀態" Context="item"><StatusBadge IsActive="item.IsActive" /></TemplateColumn>
+            <PropertyColumn Property="@(x => x.SortOrder)" Title="顯示順序" />
+            <TemplateColumn Title="操作" Context="item">
+                <div class="row-actions">
+                    <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => StartEdit(item))">編輯</FluentButton>
+                    <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => ToggleActiveAsync(item))">@(item.IsActive ? "停用" : "啟用")</FluentButton>
+                </div>
+            </TemplateColumn>
+        </FluentDataGrid>
+    </div>
+    <Paginator PageNumber="_result.PageNumber" TotalPages="_result.TotalPages" TotalCount="_result.TotalCount" PageChanged="ChangePageAsync" />
+}
+
+@code {
+    private readonly LeaveTypeQuery _query = new();
+    private PagedResult<LeaveTypeDto>? _result;
+    private UpdateLeaveTypeRequest _form = NewForm();
+    private string _statusFilter = "all";
+    private string? _error;
+    private bool _loading = true;
+    private bool _editing;
+    private bool _saving;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task SearchAsync() { _query.PageNumber = 1; _query.IsActive = _statusFilter switch { "active" => true, "inactive" => false, _ => null }; await LoadAsync(); }
+    private async Task ChangePageAsync(int page) { _query.PageNumber = page; await LoadAsync(); }
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try { _result = await LeaveTypeService.GetListAsync(_query); }
+        catch (Exception ex) { _error = Friendly(ex); }
+        finally { _loading = false; }
+    }
+    private void StartCreate() { _form = NewForm(); _editing = true; }
+    private void StartEdit(LeaveTypeDto item)
+    {
+        _form = new UpdateLeaveTypeRequest
+        {
+            Id = item.Id, Code = item.Code, Name = item.Name, Unit = item.Unit,
+            MinimumUnit = item.MinimumUnit, RequiresReason = item.RequiresReason,
+            IsPaid = item.IsPaid, SortOrder = item.SortOrder, Category = item.Category,
+            CalculationMode = item.CalculationMode, AllowHourlyRequest = item.AllowHourlyRequest,
+            MinimumRequestMinutes = item.MinimumRequestMinutes,
+            RequiresAttachment = item.RequiresAttachment,
+            IsEmployeeRequestEnabled = item.IsEmployeeRequestEnabled,
+            Description = item.Description, RowVersion = item.RowVersion
+        };
+        _editing = true;
+    }
+    private void CancelEdit() => _editing = false;
+    private async Task SaveAsync()
+    {
+        _saving = true; _error = null;
+        try
+        {
+            if (_form.Id == Guid.Empty)
+            {
+                await LeaveTypeService.CreateAsync(new CreateLeaveTypeRequest
+                {
+                    Code = _form.Code, Name = _form.Name, Unit = _form.Unit,
+                    MinimumUnit = _form.MinimumUnit, RequiresReason = _form.RequiresReason,
+                    IsPaid = _form.IsPaid, SortOrder = _form.SortOrder,
+                    Category = _form.Category, CalculationMode = _form.CalculationMode,
+                    AllowHourlyRequest = _form.AllowHourlyRequest,
+                    MinimumRequestMinutes = _form.MinimumRequestMinutes,
+                    RequiresAttachment = _form.RequiresAttachment,
+                    IsEmployeeRequestEnabled = _form.IsEmployeeRequestEnabled,
+                    Description = _form.Description
+                });
+            }
+            else { await LeaveTypeService.UpdateAsync(_form); }
+            ToastService.ShowSuccess("假別資料已儲存。"); _editing = false; await LoadAsync();
+        }
+        catch (Exception ex) { _error = Friendly(ex); ToastService.ShowError(_error); }
+        finally { _saving = false; }
+    }
+    private async Task ToggleActiveAsync(LeaveTypeDto item)
+    {
+        var dialog = await DialogService.ShowConfirmationAsync($"確定要{(item.IsActive ? "停用" : "啟用")}假別「{item.Name}」嗎？", "確認", "取消", "變更假別狀態");
+        var result = await dialog.Result; if (result.Cancelled) return;
+        try { await LeaveTypeService.SetActiveAsync(item.Id, !item.IsActive, item.RowVersion); ToastService.ShowSuccess("假別狀態已更新。"); await LoadAsync(); }
+        catch (Exception ex) { _error = Friendly(ex); ToastService.ShowError(_error); }
+    }
+    private static UpdateLeaveTypeRequest NewForm() => new()
+    {
+        MinimumUnit = 0.5m,
+        Category = LeaveCategory.General,
+        CalculationMode = LeaveCalculationMode.WorkingSchedule,
+        AllowHourlyRequest = true,
+        MinimumRequestMinutes = 30,
+        IsEmployeeRequestEnabled = true
+    };
+    private static string CategoryText(LeaveCategory category) => category switch
+    {
+        LeaveCategory.General => "一般請假",
+        LeaveCategory.SpecialCalendarLeave => "特殊曆日假",
+        LeaveCategory.LeaveOfAbsence => "留職停薪",
+        _ => "未知"
+    };
+    private static string CalculationText(LeaveCalculationMode mode) => mode switch
+    {
+        LeaveCalculationMode.WorkingSchedule => "依班表",
+        LeaveCalculationMode.CalendarDays => "連續曆日",
+        LeaveCalculationMode.LeaveOfAbsence => "留職停薪",
+        _ => "未知"
+    };
+    private static string Friendly(Exception ex) => ex switch
+    {
+        ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException => ex.Message,
+        HRSystem.Domain.Common.DomainValidationException => ex.Message,
+        _ => "處理假別資料時發生錯誤，請稍後再試。"
+    };
+}

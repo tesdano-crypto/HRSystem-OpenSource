@@ -1,0 +1,17 @@
+@page "/admin/payroll/history"
+@attribute [Authorize(Policy = PolicyNames.PayrollView)]
+@using HRSystem.Application.Payroll
+@inject IPayrollFinalizationService Finalizations
+
+<PageTitle>薪資歷史</PageTitle>
+<PageHeader Title="薪資歷史" Description="已完成正式結算的月份與不可變結算摘要。" />
+@if (_loading) { <LoadingState /> }
+else if (_items.Count == 0) { <EmptyState Title="尚無薪資歷史" Description="目前尚未有已正式結算的薪資月份。" /> }
+else { <section class="content-card"><table class="data-table">
+<thead><tr><th>月份</th><th>人數</th><th>應發</th><th>扣款</th><th>實領</th><th>結算時間</th><th>操作</th></tr></thead>
+<tbody>@foreach (var item in _items) { <tr><td>@item.Year/@item.Month.ToString("00")</td>
+<td>@item.EmployeeCount</td><td>@item.GrossPay.ToString("N0")</td><td>@item.TotalDeductions.ToString("N0")</td>
+<td>@item.NetPay.ToString("N0")</td><td>@item.FinalizedAtUtc.ToLocalTime()</td>
+<td><a href="/admin/payroll/finalizations/@item.Id">查看</a></td></tr> }</tbody></table></section> }
+@code { private bool _loading=true; private IReadOnlyList<PayrollFinalizationDto> _items=[];
+protected override async Task OnInitializedAsync(){try{_items=await Finalizations.GetHistoryAsync();}finally{_loading=false;}} }

@@ -1,0 +1,193 @@
+@page "/my-attendance-requests"
+@attribute [Authorize(Policy = PolicyNames.AttendanceSelfService)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Domain.Attendance
+@inject IAttendanceCorrectionService CorrectionService
+
+<PageTitle>我的出勤更正申請</PageTitle>
+<PageHeader Title="我的出勤更正申請" Description="針對自己的缺卡、認列時間、遲到或早退提出申請。" />
+
+<FluentMessageBar Intent="@MessageIntent.Info">
+    補卡與時間更正不會修改原始打卡；管理員核准後會建立可追溯的出勤調整。遲到／早退說明核准後，原異常分鐘仍會保留。
+</FluentMessageBar>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_intent">@_message</FluentMessageBar>
+}
+
+@if (_context is not null)
+{
+    <section class="content-card" aria-label="來源出勤資料">
+        <h2>@_context.WorkDate.ToString("yyyy/MM/dd") 出勤資料</h2>
+        <p>排定：@TimeText(_context.ScheduledStart)–@TimeText(_context.ScheduledEnd)；認列：@ClockText(_context.CurrentClockIn)–@ClockText(_context.CurrentClockOut)</p>
+        <p>狀態：@_context.AttendanceStatus；遲到 @_context.LateMinutes 分鐘；早退 @_context.EarlyLeaveMinutes 分鐘；缺上班卡 @YesNo(_context.MissingClockIn)；缺下班卡 @YesNo(_context.MissingClockOut)</p>
+    </section>
+
+    <section class="content-card">
+        <h2>@(_editingId.HasValue ? "修改草稿" : "建立草稿")</h2>
+        <EditForm Model="_draft" OnValidSubmit="SaveDraftAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <div class="form-grid">
+                <div class="field"><label>申請類型</label><InputSelect @bind-Value="_draft.RequestType">@foreach (var type in AvailableTypes(_context)) { <option value="@type">@TypeText(type)</option> }</InputSelect></div>
+                <div class="field"><label>原因類型</label><InputSelect @bind-Value="_draft.Reason">@foreach (var reason in Enum.GetValues<AttendanceCorrectionReason>()) { <option value="@reason">@ReasonText(reason)</option> }</InputSelect></div>
+                @if (NeedsClockIn(_draft.RequestType))
+                {
+                    <div class="field"><label>建議上班時間</label><InputDate Type="InputDateType.DateTimeLocal" @bind-Value="_draft.ProposedClockInAt" /></div>
+                }
+                @if (NeedsClockOut(_draft.RequestType))
+                {
+                    <div class="field"><label>建議下班時間</label><InputDate Type="InputDateType.DateTimeLocal" @bind-Value="_draft.ProposedClockOutAt" /></div>
+                }
+                <div class="field full-width"><label>申請說明</label><textarea maxlength="1000" @bind="_draft.EmployeeReason" @bind:event="oninput"></textarea></div>
+            </div>
+            <div class="toolbar">
+                <FluentButton Appearance="@Appearance.Accent" Type="ButtonType.Submit" Disabled="_busy">儲存草稿</FluentButton>
+                @if (_editingId.HasValue) { <FluentButton Appearance="@Appearance.Outline" OnClick="CancelEdit">取消修改</FluentButton> }
+            </div>
+        </EditForm>
+    </section>
+}
+else if (AttendanceResultId.HasValue && !_busy)
+{
+    <EmptyState Title="找不到可申請的出勤資料" Description="指定出勤結果不存在，或不屬於目前登入員工。" />
+}
+
+<section class="content-card">
+    <div class="toolbar"><h2>我的申請</h2><a href="/my-attendance">返回我的每日出勤</a></div>
+    @if (_busy) { <LoadingState /> }
+    else if (_items.Count == 0) { <EmptyState Title="目前沒有出勤更正申請" Description="請從我的每日出勤選擇異常紀錄提出申請。" /> }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th>日期</th><th>類型</th><th>建議時間</th><th>原因</th><th>狀態</th><th>歷程</th><th>操作</th></tr></thead>
+            <tbody>
+            @foreach (var item in _items)
+            {
+                <tr>
+                    <td>@item.WorkDate.ToString("yyyy/MM/dd")</td><td>@TypeText(item.RequestType)</td>
+                    <td>@ProposalText(item)</td><td>@ReasonText(item.Reason)<div class="muted">@item.EmployeeReason</div></td>
+                    <td><span class="status-badge @StatusCss(item.Status)">@StatusText(item.Status)</span></td>
+                    <td><FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => ToggleHistory(item.Id))">查看</FluentButton></td>
+                    <td>
+                        @if (item.Status == AttendanceCorrectionRequestStatus.Draft)
+                        {
+                            <FluentButton Appearance="@Appearance.Outline" OnClick="@(() => Edit(item))">修改</FluentButton>
+                            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="@(() => SubmitAsync(item))">送出</FluentButton>
+                        }
+                        else if (item.Status == AttendanceCorrectionRequestStatus.Submitted)
+                        {
+                            <FluentButton Appearance="@Appearance.Outline" Disabled="_busy" OnClick="@(() => WithdrawAsync(item))">撤回</FluentButton>
+                        }
+                    </td>
+                </tr>
+                @if (_historyId == item.Id)
+                {
+                    <tr><td colspan="7"><ul>@foreach (var history in item.Histories) { <li>@history.OccurredAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm") — @HistoryText(history.Action) @history.Note</li> }</ul></td></tr>
+                }
+            }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "attendanceResultId")]
+    [Parameter] public Guid? AttendanceResultId { get; set; }
+    [SupplyParameterFromQuery(Name = "requestType")]
+    [Parameter] public string? RequestedTypeText { get; set; }
+
+    private CreateAttendanceCorrectionDraftRequest _draft = NewDraft();
+    private AttendanceCorrectionContextDto? _context;
+    private List<AttendanceCorrectionRequestDto> _items = [];
+    private Guid? _editingId;
+    private string? _editingRowVersion;
+    private Guid? _historyId;
+    private bool _busy;
+    private string? _message;
+    private MessageIntent _intent = MessageIntent.Info;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+        if (AttendanceResultId.HasValue)
+        {
+            _context = await CorrectionService.GetMyAttendanceContextAsync(AttendanceResultId.Value);
+            if (_context is not null)
+            {
+                _draft.AttendanceResultId = _context.AttendanceResultId;
+                _draft.RequestType = ParsedRequestedType() ?? DefaultType(_context);
+                ApplyDefaultTimes(_draft, _context);
+            }
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        try { _busy = true; _items = (await CorrectionService.GetMyRequestsAsync(new())).ToList(); }
+        catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException) { Show(ex.Message, MessageIntent.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        await RunAsync(async () =>
+        {
+            if (_editingId.HasValue)
+                await CorrectionService.UpdateDraftAsync(new()
+                {
+                    Id = _editingId.Value, RowVersion = _editingRowVersion ?? "",
+                    AttendanceResultId = _draft.AttendanceResultId,
+                    RequestType = _draft.RequestType,
+                    ProposedClockInAt = _draft.ProposedClockInAt,
+                    ProposedClockOutAt = _draft.ProposedClockOutAt,
+                    Reason = _draft.Reason, EmployeeReason = _draft.EmployeeReason
+                });
+            else await CorrectionService.CreateDraftAsync(_draft);
+            Show("出勤更正草稿已儲存。", MessageIntent.Success);
+            CancelEdit();
+        });
+    }
+
+    private Task SubmitAsync(AttendanceCorrectionRequestDto item) => RunAsync(async () =>
+    { await CorrectionService.SubmitAsync(new() { Id = item.Id, RowVersion = item.RowVersion }); Show("出勤更正申請已送出。", MessageIntent.Success); });
+    private Task WithdrawAsync(AttendanceCorrectionRequestDto item) => RunAsync(async () =>
+    { await CorrectionService.WithdrawAsync(new() { Id = item.Id, RowVersion = item.RowVersion }); Show("出勤更正申請已撤回。", MessageIntent.Success); });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        try { _busy = true; await action(); await LoadAsync(); }
+        catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException or ConcurrencyConflictException) { Show(ex.Message, MessageIntent.Error); }
+        finally { _busy = false; }
+    }
+
+    private void Edit(AttendanceCorrectionRequestDto item)
+    {
+        _editingId = item.Id; _editingRowVersion = item.RowVersion;
+        AttendanceResultId = item.AttendanceResultId; _context = item.AttendanceContext;
+        _draft = new() { AttendanceResultId = item.AttendanceResultId ?? Guid.Empty, RequestType = item.RequestType, ProposedClockInAt = item.ProposedClockInAt, ProposedClockOutAt = item.ProposedClockOutAt, Reason = item.Reason, EmployeeReason = item.EmployeeReason };
+    }
+    private void CancelEdit() { _editingId = null; _editingRowVersion = null; _draft = NewDraft(); if (_context is not null) { _draft.AttendanceResultId = _context.AttendanceResultId; _draft.RequestType = ParsedRequestedType() ?? DefaultType(_context); ApplyDefaultTimes(_draft, _context); } }
+    private void ToggleHistory(Guid id) => _historyId = _historyId == id ? null : id;
+    private void Show(string value, MessageIntent intent) { _message = value; _intent = intent; }
+    private static CreateAttendanceCorrectionDraftRequest NewDraft() => new() { Reason = AttendanceCorrectionReason.ForgotPunch };
+    private AttendanceCorrectionRequestType? ParsedRequestedType() =>
+        Enum.TryParse<AttendanceCorrectionRequestType>(RequestedTypeText,
+            true, out var value) && Enum.IsDefined(value) ? value : null;
+    private static void ApplyDefaultTimes(CreateAttendanceCorrectionDraftRequest draft, AttendanceCorrectionContextDto context) { if (NeedsClockIn(draft.RequestType)) draft.ProposedClockInAt = DateTime.SpecifyKind(context.WorkDate.ToDateTime(context.ScheduledStart ?? new TimeOnly(8, 0)), DateTimeKind.Unspecified); if (NeedsClockOut(draft.RequestType)) draft.ProposedClockOutAt = DateTime.SpecifyKind(context.WorkDate.ToDateTime(context.ScheduledEnd ?? new TimeOnly(17, 30)), DateTimeKind.Unspecified); }
+    private static AttendanceCorrectionRequestType DefaultType(AttendanceCorrectionContextDto value) => value.MissingClockIn && value.MissingClockOut ? AttendanceCorrectionRequestType.MissingBoth : value.MissingClockIn ? AttendanceCorrectionRequestType.MissingClockIn : value.MissingClockOut ? AttendanceCorrectionRequestType.MissingClockOut : value.LateMinutes > 0 ? AttendanceCorrectionRequestType.LateExplanation : AttendanceCorrectionRequestType.EarlyLeaveExplanation;
+    private static IEnumerable<AttendanceCorrectionRequestType> AvailableTypes(AttendanceCorrectionContextDto value) { if (value.MissingClockIn && value.MissingClockOut) yield return AttendanceCorrectionRequestType.MissingBoth; else { if (value.MissingClockIn) yield return AttendanceCorrectionRequestType.MissingClockIn; else if (value.CurrentClockIn.HasValue) yield return AttendanceCorrectionRequestType.ClockInCorrection; if (value.MissingClockOut) yield return AttendanceCorrectionRequestType.MissingClockOut; else if (value.CurrentClockOut.HasValue) yield return AttendanceCorrectionRequestType.ClockOutCorrection; } if (value.LateMinutes > 0) yield return AttendanceCorrectionRequestType.LateExplanation; if (value.EarlyLeaveMinutes > 0) yield return AttendanceCorrectionRequestType.EarlyLeaveExplanation; }
+    private static bool NeedsClockIn(AttendanceCorrectionRequestType type) => type is AttendanceCorrectionRequestType.MissingClockIn or AttendanceCorrectionRequestType.MissingBoth or AttendanceCorrectionRequestType.ClockInCorrection;
+    private static bool NeedsClockOut(AttendanceCorrectionRequestType type) => type is AttendanceCorrectionRequestType.MissingClockOut or AttendanceCorrectionRequestType.MissingBoth or AttendanceCorrectionRequestType.ClockOutCorrection;
+    private static string ProposalText(AttendanceCorrectionRequestDto value) => $"上班 {ClockText(value.ProposedClockInAt)}／下班 {ClockText(value.ProposedClockOutAt)}";
+    private static string ClockText(DateTime? value) => value?.ToString("MM/dd HH:mm") ?? "—";
+    private static string TimeText(TimeOnly? value) => value?.ToString("HH:mm") ?? "—";
+    private static string YesNo(bool value) => value ? "是" : "否";
+    private static string TypeText(AttendanceCorrectionRequestType type) => type switch { AttendanceCorrectionRequestType.MissingClockIn => "補上班卡", AttendanceCorrectionRequestType.MissingClockOut => "補下班卡", AttendanceCorrectionRequestType.MissingBoth => "補上下班卡", AttendanceCorrectionRequestType.ClockInCorrection => "上班時間更正", AttendanceCorrectionRequestType.ClockOutCorrection => "下班時間更正", AttendanceCorrectionRequestType.LateExplanation => "遲到原因說明", AttendanceCorrectionRequestType.EarlyLeaveExplanation => "早退原因說明", _ => type.ToString() };
+    private static string ReasonText(AttendanceCorrectionReason reason) => reason switch { AttendanceCorrectionReason.ForgotPunch => "忘記打卡", AttendanceCorrectionReason.DeviceFailure => "設備異常", AttendanceCorrectionReason.OfficialBusiness => "公務外出", AttendanceCorrectionReason.WorkRequirement => "工作需要", AttendanceCorrectionReason.TrafficIncident => "交通事故", AttendanceCorrectionReason.PersonalReason => "個人原因", AttendanceCorrectionReason.IncorrectRecognizedTime => "認列時間不正確", _ => "其他" };
+    private static string StatusText(AttendanceCorrectionRequestStatus status) => status switch { AttendanceCorrectionRequestStatus.Draft => "草稿", AttendanceCorrectionRequestStatus.Submitted => "待審核", AttendanceCorrectionRequestStatus.Approved => "已核准", AttendanceCorrectionRequestStatus.Rejected => "已駁回", AttendanceCorrectionRequestStatus.Withdrawn => "已撤回", _ => status.ToString() };
+    private static string StatusCss(AttendanceCorrectionRequestStatus status) => status == AttendanceCorrectionRequestStatus.Approved ? "success" : status == AttendanceCorrectionRequestStatus.Submitted ? "warning" : status == AttendanceCorrectionRequestStatus.Rejected ? "danger" : "";
+    private static string HistoryText(AttendanceCorrectionRequestHistoryAction action) => action switch { AttendanceCorrectionRequestHistoryAction.Created => "建立草稿", AttendanceCorrectionRequestHistoryAction.Updated => "更新草稿", AttendanceCorrectionRequestHistoryAction.Submitted => "送出", AttendanceCorrectionRequestHistoryAction.Approved => "核准", AttendanceCorrectionRequestHistoryAction.Rejected => "駁回", AttendanceCorrectionRequestHistoryAction.Withdrawn => "撤回", AttendanceCorrectionRequestHistoryAction.AdjustmentApplied => "套用出勤調整", _ => action.ToString() };
+}

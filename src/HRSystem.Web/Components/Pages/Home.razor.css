@@ -1,0 +1,46 @@
+.dashboard { display: grid; gap: 24px; max-width: 1500px; margin: 0 auto; }
+.dashboard-welcome { align-items: center; background: linear-gradient(135deg, #0f5a78, #147b8e); border-radius: 16px; color: white; display: flex; gap: 24px; justify-content: space-between; padding: 26px 30px; }
+.dashboard-welcome h1 { font-size: clamp(1.45rem, 3vw, 2rem); margin: 4px 0 8px; overflow-wrap: anywhere; }
+.dashboard-welcome p, .dashboard-identity span { color: rgba(255,255,255,.8); margin: 0; }
+.dashboard-eyebrow { font-size: .86rem; font-weight: 650; letter-spacing: .08em; }
+.dashboard-identity { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2); border-radius: 12px; display: grid; flex: 0 1 360px; gap: 5px; min-width: 0; padding: 14px 18px; }
+.dashboard-identity strong, .dashboard-identity span { overflow-wrap: anywhere; }
+.dashboard-section-heading { align-items: flex-end; display: flex; gap: 16px; justify-content: space-between; margin-bottom: 12px; }
+.dashboard-section-heading h2 { font-size: 1.2rem; margin: 0 0 4px; }
+.dashboard-section-heading p { color: #5b6570; font-size: .88rem; margin: 0; }
+.dashboard-summary-grid, .dashboard-quick-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); }
+.dashboard-summary-card { display: grid; gap: 5px; min-height: 150px; padding: 18px; }
+.dashboard-card-label { color: #3e4b55; font-weight: 650; }
+.dashboard-card-value { color: #0f5a78; font-size: 2rem; line-height: 1.1; }
+.dashboard-summary-card > span:last-of-type { color: #66717b; font-size: .84rem; }
+.dashboard-summary-card a, .dashboard-all-link, .dashboard-list a { color: #075985; font-weight: 650; text-decoration: none; }
+.dashboard-summary-card a { margin-top: auto; }
+.dashboard-two-column { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dashboard-panel { background: white; border: 1px solid #dbe3e8; border-radius: 12px; min-width: 0; padding: 20px; }
+.dashboard-list { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
+.dashboard-list li { align-items: center; border-bottom: 1px solid #e7ecef; display: flex; gap: 12px; justify-content: space-between; padding: 13px 0; }
+.dashboard-list li:last-child { border-bottom: 0; }
+.dashboard-list li > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.dashboard-list strong, .dashboard-list span { overflow-wrap: anywhere; }
+.dashboard-list li > div:first-child > span { color: #66717b; font-size: .82rem; }
+.dashboard-item-type { color: #0f5a78 !important; font-weight: 650; }
+.dashboard-item-action { align-items: center; display: flex; flex: 0 0 auto; gap: 10px; }
+.today-leave-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.today-leave-item { border: 1px solid #e0e6ea; border-radius: 10px; display: grid; gap: 10px; padding: 14px; }
+.today-leave-item div { display: grid; gap: 3px; }
+.today-leave-item span { color: #5f6b75; font-size: .84rem; overflow-wrap: anywhere; }
+.dashboard-quick-action { background: white; border: 1px solid #dbe3e8; border-radius: 12px; color: #22313b; display: grid; gap: 6px; min-height: 120px; padding: 18px; text-decoration: none; }
+.dashboard-quick-action:hover { border-color: #0f5a78; box-shadow: 0 4px 14px rgba(15,90,120,.1); }
+.dashboard-quick-action strong { color: #0f5a78; }
+.dashboard-quick-action span { color: #66717b; font-size: .86rem; }
+.dashboard-error { display: grid; gap: 14px; justify-items: start; }
+.dashboard-limit-note { color: #5f6b75; font-size: .84rem; margin: 14px 0 0; }
+@media (max-width: 900px) { .dashboard-two-column { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+    .dashboard { gap: 18px; }
+    .dashboard-welcome { align-items: stretch; flex-direction: column; padding: 20px; }
+    .dashboard-identity { flex-basis: auto; }
+    .dashboard-section-heading { align-items: flex-start; flex-direction: column; }
+    .dashboard-list li { align-items: flex-start; flex-direction: column; }
+    .dashboard-item-action { justify-content: space-between; width: 100%; }
+}

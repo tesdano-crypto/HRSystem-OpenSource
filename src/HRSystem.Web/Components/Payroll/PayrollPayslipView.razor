@@ -1,0 +1,37 @@
+@using HRSystem.Application.Payroll
+@inject IJSRuntime JS
+
+<article class="content-card payslip">
+    <header>
+        <h1>@Value.CompanyName 薪資單</h1>
+        <p>@Value.Year/@Value.Month.ToString("00")（@Value.PeriodStart ～ @Value.PeriodEnd）</p>
+        <p>@Value.EmployeeNumber — @Value.EmployeeName｜@Value.DepartmentName</p>
+    </header>
+    <div class="payslip-columns">
+        <section><h2>應發</h2>
+            <table class="data-table"><tbody>
+            @foreach (var line in Value.Earnings)
+            { <tr><td>@PayrollDisplay.Component(line.Code, line.Name, Value.PayrollPlanCode)</td><td>@line.Amount.ToString("N0")</td></tr> }
+            </tbody><tfoot><tr><th>應發合計</th><th>@Value.GrossPay.ToString("N0")</th></tr></tfoot></table>
+        </section>
+        <section><h2>扣款</h2>
+            <table class="data-table"><tbody>
+            @foreach (var line in Value.Deductions)
+            { <tr><td>@PayrollDisplay.Component(line.Code, line.Name, Value.PayrollPlanCode)</td><td>@line.Amount.ToString("N0")</td></tr> }
+            </tbody><tfoot><tr><th>扣款合計</th><th>@Value.TotalDeductions.ToString("N0")</th></tr></tfoot></table>
+        </section>
+    </div>
+    <h2>實領金額：@Value.NetPay.ToString("N0")</h2>
+    <p class="field-hint">正式結算：@Value.FinalizedAtUtc.ToLocalTime()｜版本指紋：V@Value.FingerprintVersion-@Value.Fingerprint[..12]</p>
+    <FluentButton class="no-print" OnClick="@(() => PrintAsync())">列印</FluentButton>
+</article>
+
+<style>
+.payslip-columns { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+@@media print { .no-print, nav, header.app-header { display:none !important; } .payslip { box-shadow:none; border:0; } }
+</style>
+
+@code {
+    [Parameter, EditorRequired] public PayrollPayslipDto Value { get; set; } = null!;
+    private ValueTask PrintAsync() => JS.InvokeVoidAsync("window.print");
+}

@@ -1,0 +1,14 @@
+@page "/my-payslips/{PayslipId:guid}"
+@attribute [Authorize(Policy = PolicyNames.PayslipViewSelf)]
+@using HRSystem.Application.Payroll
+@inject IPayrollFinalizationService Finalizations
+
+<PageTitle>我的薪資單</PageTitle>
+<p class="no-print"><a href="/my-payslips">← 返回我的薪資單</a></p>
+@if (_value is null) { <LoadingState /> } else { <PayrollPayslipView Value="_value" /> }
+@code {
+    [Parameter] public Guid PayslipId { get; set; }
+    private PayrollPayslipDto? _value;
+    protected override async Task OnParametersSetAsync() =>
+        _value = await Finalizations.GetMyPayslipAsync(PayslipId);
+}

@@ -1,0 +1,5 @@
+.detail-grid { display: grid; grid-template-columns: minmax(8rem, auto) 1fr; gap: .6rem 1rem; }
+.detail-grid dt { font-weight: 600; }
+.detail-grid dd { margin: 0; }
+.anomaly-time { color: #b10e1e; font-weight: 700; }
+.overstay-warning { color: #835c00; font-weight: 600; }

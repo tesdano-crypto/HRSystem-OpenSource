@@ -1,0 +1,7 @@
+<FluentBadge Appearance="@(IsActive ? Appearance.Accent : Appearance.Neutral)">
+    @(IsActive ? "啟用" : "停用")
+</FluentBadge>
+
+@code {
+    [Parameter] public bool IsActive { get; set; }
+}

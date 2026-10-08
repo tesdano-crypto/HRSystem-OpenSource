@@ -1,0 +1,222 @@
+@page "/admin/company-calendar/{Year:int}"
+@attribute [Authorize(Policy = PolicyNames.CompanyCalendarManage)]
+@using System.ComponentModel.DataAnnotations
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.CompanyCalendars
+@using HRSystem.Domain.CompanyCalendars
+@inject ICompanyCalendarService CalendarService
+@inject IDialogService DialogService
+@inject IToastService ToastService
+
+<PageTitle>@Year 年行事曆管理</PageTitle>
+<PageHeader Title="@($"{Year} 年行事曆管理")" Description="發布、封存及日期異動均使用樂觀並行控制並留下稽核紀錄。">
+    <Actions><a href="/admin/company-calendar">返回管理列表</a></Actions>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else if (_calendar is not null)
+{
+    <section class="summary-card">
+        <h2>@_calendar.Year.SourceTitle</h2>
+        <p>狀態：@_calendar.Year.Status　Manifest：@_calendar.Year.ManifestVersion</p>
+        @if (_calendar.Year.Status == CompanyCalendarStatus.Draft)
+        {
+            <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="PublishAsync">發布</FluentButton>
+        }
+        else if (_calendar.Year.Status == CompanyCalendarStatus.Published)
+        {
+            <FluentButton Appearance="@Appearance.Stealth" Disabled="_busy" OnClick="ArchiveAsync">封存</FluentButton>
+        }
+    </section>
+
+    @if (_calendar.Year.Status != CompanyCalendarStatus.Archived)
+    {
+        <section class="editor-panel">
+            <h2>日期異動</h2>
+            <EditForm Model="_change" OnValidSubmit="ChangeDayAsync">
+                <DataAnnotationsValidator /><ValidationSummary />
+                <div class="form-grid">
+                    <div class="field"><label for="calendar-date">日期</label><InputDate id="calendar-date" @bind-Value="_change.Date" /></div>
+                    <div class="field">
+                        <label for="calendar-operation">操作</label>
+                        <select id="calendar-operation" @bind="_operation">
+                            <option value="company">設為公司假日</option>
+                            <option value="working">設為例外工作日</option>
+                            <option value="remove-company">移除公司假日</option>
+                            <option value="remove-working">移除例外工作日</option>
+                            @if (_calendar.Year.Status == CompanyCalendarStatus.Published)
+                            {
+                                <option value="override">覆寫已發布日期</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_operation == "override")
+                    {
+                        <div class="field">
+                            <label for="calendar-type">日期類型</label>
+                            <InputSelect id="calendar-type" @bind-Value="_change.DayType">
+                                @foreach (var type in Enum.GetValues<CompanyCalendarDayType>())
+                                {
+                                    <option value="@type">@type</option>
+                                }
+                            </InputSelect>
+                        </div>
+                    }
+                    <div class="field"><label for="calendar-name">名稱</label><InputText id="calendar-name" @bind-Value="_change.Name" /></div>
+                    <div class="field"><label for="calendar-description">說明</label><InputText id="calendar-description" @bind-Value="_change.Description" /></div>
+                    <div class="field"><label for="calendar-reason">異動原因</label><InputText id="calendar-reason" @bind-Value="_change.Reason" /></div>
+                </div>
+                <FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="_busy">套用異動</FluentButton>
+            </EditForm>
+        </section>
+    }
+
+    @foreach (var month in _calendar.Days.GroupBy(day => day.Date.Month))
+    {
+        <section class="editor-panel">
+            <h2>@month.Key 月</h2>
+            <div class="grid-shell">
+                <FluentDataGrid Items="@month.AsQueryable()" ResizableColumns="true">
+                    <PropertyColumn Property="@(x => x.Date)" Title="日期" />
+                    <PropertyColumn Property="@(x => x.DayType)" Title="類型" />
+                    <PropertyColumn Property="@(x => x.Name)" Title="名稱" />
+                    <TemplateColumn Title="工作日" Context="item">@(item.IsWorkingDay ? "是" : "否")</TemplateColumn>
+                    <TemplateColumn Title="人工異動" Context="item">@(item.IsManualOverride ? "是" : "否")</TemplateColumn>
+                </FluentDataGrid>
+            </div>
+        </section>
+    }
+}
+
+@code {
+    [Parameter] public int Year { get; set; }
+    private CompanyCalendarYearDetailDto? _calendar;
+    private ChangeForm _change = new();
+    private string _operation = "company";
+    private string? _error;
+    private bool _loading = true;
+    private bool _busy;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _calendar = await CalendarService.GetManagementYearAsync(Year);
+            _change.Date = _calendar.Days.First().Date;
+        }
+        catch { _error = "找不到指定的公司行事曆資料。"; }
+        finally { _loading = false; }
+    }
+
+    private async Task PublishAsync()
+    {
+        if (_calendar is null) return;
+        var dialog = await DialogService.ShowConfirmationAsync(
+            $"確定發布 {Year} 年公司行事曆嗎？", "發布", "取消", "發布行事曆");
+        if ((await dialog.Result).Cancelled) return;
+        await RunAsync(async () =>
+        {
+            await CalendarService.PublishAsync(new PublishCompanyCalendarRequest
+            {
+                Year = Year,
+                RowVersion = _calendar.Year.RowVersion,
+                ExpectedManifestVersion = _calendar.Year.ManifestVersion,
+                ExpectedManifestHash = _calendar.Year.ManifestHash
+            });
+            ToastService.ShowSuccess($"{Year} 年公司行事曆已發布。");
+        });
+    }
+
+    private async Task ArchiveAsync()
+    {
+        if (_calendar is null) return;
+        var dialog = await DialogService.ShowConfirmationAsync(
+            $"確定封存 {Year} 年公司行事曆嗎？", "封存", "取消", "封存行事曆");
+        if ((await dialog.Result).Cancelled) return;
+        await RunAsync(async () =>
+        {
+            await CalendarService.ArchiveAsync(new ArchiveCompanyCalendarRequest
+            {
+                Year = Year,
+                RowVersion = _calendar.Year.RowVersion
+            });
+            ToastService.ShowSuccess($"{Year} 年公司行事曆已封存。");
+        });
+    }
+
+    private async Task ChangeDayAsync()
+    {
+        if (_calendar is null) return;
+        var day = _calendar.Days.SingleOrDefault(item => item.Date == _change.Date);
+        if (day is null) { _error = "找不到指定的公司行事曆日期。"; return; }
+        var request = new ChangeCompanyCalendarDayRequest
+        {
+            Year = Year,
+            Date = _change.Date,
+            Name = _change.Name,
+            Description = _change.Description,
+            Reason = _change.Reason,
+            YearRowVersion = _calendar.Year.RowVersion,
+            DayRowVersion = day.RowVersion
+        };
+        await RunAsync(async () =>
+        {
+            switch (_operation)
+            {
+                case "company": await CalendarService.SetCompanyHolidayAsync(request); break;
+                case "working": await CalendarService.SetExceptionalWorkingDayAsync(request); break;
+                case "remove-company": await CalendarService.RemoveCompanyHolidayAsync(request); break;
+                case "remove-working": await CalendarService.RemoveExceptionalWorkingDayAsync(request); break;
+                case "override":
+                    await CalendarService.OverridePublishedDayAsync(new OverridePublishedCalendarDayRequest
+                    {
+                        Year = request.Year,
+                        Date = request.Date,
+                        Name = request.Name,
+                        Description = request.Description,
+                        Reason = request.Reason,
+                        YearRowVersion = request.YearRowVersion,
+                        DayRowVersion = request.DayRowVersion,
+                        DayType = _change.DayType
+                    });
+                    break;
+            }
+            ToastService.ShowSuccess("行事曆日期已更新。");
+        });
+    }
+
+    private async Task RunAsync(Func<Task> operation)
+    {
+        _busy = true; _error = null;
+        try { await operation(); await LoadAsync(); }
+        catch (Exception exception) { _error = Friendly(exception); ToastService.ShowError(_error); }
+        finally { _busy = false; }
+    }
+
+    private static string Friendly(Exception exception) => exception switch
+    {
+        ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException
+            => exception.Message,
+        HRSystem.Domain.Common.DomainValidationException => exception.Message,
+        _ => "處理公司行事曆時發生錯誤，請稍後再試。"
+    };
+
+    private sealed class ChangeForm
+    {
+        public DateOnly Date { get; set; }
+        public CompanyCalendarDayType DayType { get; set; } = CompanyCalendarDayType.CompanyHoliday;
+        [StringLength(100)] public string? Name { get; set; }
+        [StringLength(500)] public string? Description { get; set; }
+        [Required, StringLength(500)] public string Reason { get; set; } = string.Empty;
+    }
+}

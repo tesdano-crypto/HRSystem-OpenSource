@@ -1,0 +1,64 @@
+@page "/approvals"
+@attribute [Authorize(Policy = PolicyNames.ApprovalView)]
+@using HRSystem.Application.Approvals
+@using HRSystem.Application.Abstractions.Security
+@using HRSystem.Domain.Approvals
+@inject IApprovalService Approvals
+@inject ICurrentUser CurrentUser
+
+<PageTitle>簽核中心</PageTitle>
+<PageHeader Title="簽核中心" Description="待簽核事項與已送簽紀錄。LINE 通知失敗不影響既有簽核，可由送簽人明確重試。" />
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+
+<section class="content-card">
+    @if (_loading)
+    {
+        <LoadingState />
+    }
+    else if (_items.Count == 0)
+    {
+        <p>目前沒有您可檢視的簽核事項。</p>
+    }
+    else
+    {
+        <table class="data-table">
+            <thead><tr><th>送簽時間</th><th>類型</th><th>標題</th><th>狀態</th><th>通知</th><th>操作</th></tr></thead>
+            <tbody>
+            @foreach (var item in _items)
+            {
+                <tr>
+                    <td>@item.RequestedAtUtc.ToLocalTime()</td>
+                    <td>@TypeText(item.ApprovalType)</td>
+                    <td>@item.Title</td>
+                    <td>@ApprovalDisplay.Status(item.Status)</td>
+                    <td>@ApprovalDisplay.NotificationStatus(item.NotificationStatus)</td>
+                    <td><a href="/approvals/@item.Id">查看</a></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private IReadOnlyList<ApprovalDto> _items = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _items = await Approvals.GetListAsync(); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private static string TypeText(ApprovalType type) => type switch
+    {
+        ApprovalType.Payroll => "薪資",
+        _ => "其他"
+    };
+}

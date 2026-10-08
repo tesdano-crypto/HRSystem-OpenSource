@@ -1,0 +1,62 @@
+@page "/audit-logs"
+@attribute [Authorize(Policy = PolicyNames.SystemAdmin)]
+@using HRSystem.Application.AuditLogs
+@using HRSystem.Application.Common.Models
+@inject IAuditLogService AuditLogService
+
+<PageTitle>稽核紀錄</PageTitle>
+<PageHeader Title="稽核紀錄" Description="僅供系統管理員查詢；紀錄不可由此頁編輯或刪除。" />
+
+<div class="toolbar">
+    <div class="field"><label for="audit-start">開始日期</label><InputDate id="audit-start" @bind-Value="_query.StartDate" /></div>
+    <div class="field"><label for="audit-end">結束日期</label><InputDate id="audit-end" @bind-Value="_query.EndDate" /></div>
+    <div class="field">
+        <label for="audit-action">動作</label>
+        <select id="audit-action" @bind="_query.Action"><option value="">全部</option><option value="Created">新增</option><option value="Updated">編輯</option><option value="Activated">啟用</option><option value="Deactivated">停用</option></select>
+    </div>
+    <FluentButton Appearance="@Appearance.Accent" OnClick="SearchAsync">搜尋</FluentButton>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else if (_result is null || _result.Items.Count == 0)
+{
+    <EmptyState Title="目前沒有稽核紀錄" Description="主檔新增或異動後會在此顯示。" />
+}
+else
+{
+    <div class="grid-shell">
+        <FluentDataGrid Items="@_result.Items.AsQueryable()" ResizableColumns="true">
+            <TemplateColumn Title="日期時間" Context="item">@TaipeiTime.Format(item.CreatedAtUtc)</TemplateColumn>
+            <PropertyColumn Property="@(x => x.UserId)" Title="使用者" />
+            <PropertyColumn Property="@(x => x.Action)" Title="動作" />
+            <PropertyColumn Property="@(x => x.EntityType)" Title="Entity" />
+            <PropertyColumn Property="@(x => x.EntityId)" Title="EntityId" />
+            <PropertyColumn Property="@(x => x.IpAddress)" Title="IP" />
+        </FluentDataGrid>
+    </div>
+    <Paginator PageNumber="_result.PageNumber" TotalPages="_result.TotalPages" TotalCount="_result.TotalCount" PageChanged="ChangePageAsync" />
+}
+
+@code {
+    private readonly AuditLogQuery _query = new();
+    private PagedResult<AuditLogDto>? _result;
+    private bool _loading = true;
+    private string? _error;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task SearchAsync() { _query.PageNumber = 1; await LoadAsync(); }
+    private async Task ChangePageAsync(int page) { _query.PageNumber = page; await LoadAsync(); }
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        try { _result = await AuditLogService.GetListAsync(_query); }
+        catch (Exception ex) { _error = ex is HRSystem.Application.Common.Exceptions.ForbiddenAccessException ? ex.Message : "讀取稽核紀錄時發生錯誤。"; }
+        finally { _loading = false; }
+    }
+}

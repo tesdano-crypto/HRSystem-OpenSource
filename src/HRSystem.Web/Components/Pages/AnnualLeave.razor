@@ -1,0 +1,78 @@
+@page "/annual-leave"
+@attribute [Authorize(Policy = PolicyNames.LeaveRequestSelfService)]
+@using HRSystem.Application.AnnualLeave
+@inject IAnnualLeaveService AnnualLeaveService
+
+<PageTitle>我的特休</PageTitle>
+<PageHeader Title="我的特休" Description="週年制特休依聘用日核發；送出申請後保留，核准後轉為已使用。" />
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Warning">@_error</FluentMessageBar>
+}
+else if (_balance is null)
+{
+    <LoadingState />
+}
+else
+{
+    <p><strong>年資：</strong>@_balance.CompletedServiceYears 年 @_balance.AdditionalServiceMonths 個月　
+       <strong>下一次取得日：</strong>@(_balance.NextEntitlementDate?.ToString("yyyy/MM/dd") ?? "—")</p>
+    <section class="summary-grid">
+        <article class="summary-card"><span>核發</span><strong>@Balance(_balance.GrantedMinutes)</strong></article>
+        <article class="summary-card"><span>申請中</span><strong>@Balance(_balance.ReservedMinutes)</strong></article>
+        <article class="summary-card"><span>已使用</span><strong>@Balance(_balance.ConsumedMinutes)</strong></article>
+        <article class="summary-card"><span>可用</span><strong>@Balance(_balance.AvailableMinutes)</strong></article>
+    </section>
+
+    <h2>週年額度</h2>
+    <div class="grid-shell">
+        <table class="data-table">
+            <thead><tr><th>核發日</th><th>有效期間</th><th>核發</th><th>保留</th><th>已使用</th><th>可用</th><th>狀態</th></tr></thead>
+            <tbody>
+            @foreach (var item in _balance.Entitlements.OrderByDescending(x => x.PeriodStart))
+            {
+                <tr><td>@item.GrantedDate</td><td>@item.PeriodStart ～ @item.PeriodEnd</td><td>@Hours(item.GrantedMinutes + item.CarriedInMinutes)</td><td>@Hours(item.ReservedMinutes)</td><td>@Hours(item.ConsumedMinutes)</td><td>@Hours(item.AvailableMinutes)</td><td>@StatusText(item.Status)</td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    <h2>配置紀錄</h2>
+    @if (_balance.Allocations.Count == 0)
+    {
+        <EmptyState Title="目前沒有特休配置紀錄" Description="特休申請送出後會顯示保留額度。" />
+    }
+    else
+    {
+        <div class="grid-shell"><table class="data-table"><thead><tr><th>申請單號</th><th>分鐘</th><th>狀態</th></tr></thead><tbody>
+        @foreach (var item in _balance.Allocations)
+        {
+            <tr><td><a href="@($"/leave-requests/{item.LeaveRequestId}")">@item.RequestNumber</a></td><td>@item.AllocatedMinutes</td><td>@AllocationText(item.Status)</td></tr>
+        }
+        </tbody></table></div>
+    }
+}
+
+@code {
+    private AnnualLeaveBalanceDto? _balance;
+    private string? _error;
+    protected override async Task OnInitializedAsync()
+    {
+        try { _balance = await AnnualLeaveService.GetMyBalanceAsync(); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+    private static string Hours(int minutes) => $"{minutes / 60m:0.##} 小時";
+    private static string Balance(int minutes) => $"{minutes / 480m:0.##} 日 / {minutes / 60m:0.##} 小時";
+    private static string StatusText(string status) => status switch
+    {
+        "Open" => "有效", "ExpiredPendingSettlement" => "到期待結算",
+        "CarriedForward" => "已遞延", "PaidOut" => "已折薪", "Closed" => "已結清",
+        "ManualReview" => "待人工確認", _ => status
+    };
+    private static string AllocationText(string status) => status switch
+    {
+        "Reserved" => "申請中", "Consumed" => "已使用", "Released" => "已釋放",
+        "Restored" => "已回補", _ => status
+    };
+}

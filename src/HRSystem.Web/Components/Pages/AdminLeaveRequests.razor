@@ -1,0 +1,64 @@
+@page "/admin/leave-requests"
+@attribute [Authorize(Policy = PolicyNames.LeaveView)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.Common.Models
+@using HRSystem.Application.Departments
+@using HRSystem.Application.Employees
+@using HRSystem.Application.LeaveRequests
+@using HRSystem.Domain.LeaveRequests
+@using HRSystem.Domain.MasterData
+@inject ILeaveRequestService LeaveRequestService
+@inject IDepartmentService DepartmentService
+@inject IEmployeeService EmployeeService
+
+<PageTitle>全部請假</PageTitle>
+<PageHeader Title="全部請假" Description="Admin 唯讀查詢全部申請；內容與狀態仍只能透過正常流程變更。" />
+
+<div class="toolbar">
+    <div class="field"><label for="admin-leave-keyword">關鍵字</label><input id="admin-leave-keyword" @bind="_query.Keyword" placeholder="單號、員工編號或姓名" /></div>
+    <div class="field"><label for="admin-leave-department">部門</label><InputSelect id="admin-leave-department" @bind-Value="_query.DepartmentId"><option value="">全部</option>@foreach(var item in _departments){<option value="@item.Id">@item.Name</option>}</InputSelect></div>
+    <div class="field"><label for="admin-leave-employee">員工</label><InputSelect id="admin-leave-employee" @bind-Value="_query.EmployeeId"><option value="">全部</option>@foreach(var item in _employees){<option value="@item.Id">@item.EmployeeNumber－@item.ChineseName</option>}</InputSelect></div>
+    <div class="field"><label for="admin-leave-type">假別</label><InputSelect id="admin-leave-type" @bind-Value="_query.LeaveTypeId"><option value="">全部</option>@foreach(var item in _leaveTypes){<option value="@item.Id">@item.Name</option>}</InputSelect></div>
+    <div class="field"><label for="admin-leave-status">狀態</label><InputSelect id="admin-leave-status" @bind-Value="_query.Status"><option value="">全部</option>@foreach(var status in Enum.GetValues<LeaveRequestStatus>()){<option value="@status">@status</option>}</InputSelect></div>
+    <div class="field"><label for="admin-leave-start">開始日期</label><InputDate id="admin-leave-start" @bind-Value="_query.StartDate" /></div>
+    <div class="field"><label for="admin-leave-end">結束日期</label><InputDate id="admin-leave-end" @bind-Value="_query.EndDate" /></div>
+    <FluentButton Appearance="@Appearance.Accent" OnClick="SearchAsync">搜尋</FluentButton>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_error)) { <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar> }
+else if (_loading) { <LoadingState /> }
+else if (_result is null || _result.Items.Count == 0) { <EmptyState Title="目前沒有符合條件的請假申請" /> }
+else
+{
+    <div class="grid-shell"><table class="data-table"><thead><tr><th>單號</th><th>員工</th><th>部門</th><th>假別</th><th>期間</th><th>狀態</th></tr></thead><tbody>@foreach(var item in _result.Items){<tr><td><a href="@($"/leave-requests/{item.Id}")">@item.RequestNumber</a></td><td>@item.EmployeeNumber－@item.EmployeeName</td><td>@item.DepartmentName</td><td>@item.LeaveTypeName</td><td>@FormatRange(item)</td><td><LeaveStatusBadge Status="item.Status" /></td></tr>}</tbody></table></div>
+    <Paginator PageNumber="_result.PageNumber" TotalPages="_result.TotalPages" TotalCount="_result.TotalCount" PageChanged="ChangePageAsync" />
+}
+
+@code {
+    private readonly LeaveRequestQuery _query = new();
+    private PagedResult<LeaveRequestDto>? _result;
+    private IReadOnlyList<DepartmentDto> _departments = [];
+    private IReadOnlyList<EmployeeDto> _employees = [];
+    private IReadOnlyList<LeaveTypeOptionDto> _leaveTypes = [];
+    private bool _loading = true;
+    private string? _error;
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _departments = (await DepartmentService.GetListAsync(new DepartmentQuery { PageSize = 100 })).Items;
+            _employees = (await EmployeeService.GetListAsync(new EmployeeQuery { PageSize = 100 })).Items;
+            _leaveTypes = await LeaveRequestService.GetAvailableLeaveTypesAsync();
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = Friendly(ex); _loading = false; }
+    }
+    private async Task SearchAsync() { _query.PageNumber = 1; await LoadAsync(); }
+    private async Task ChangePageAsync(int page) { _query.PageNumber = page; await LoadAsync(); }
+    private async Task LoadAsync() { _loading = true; _error = null; try { _result = await LeaveRequestService.SearchAllRequestsAsync(_query); } catch (Exception ex) { _error = Friendly(ex); } finally { _loading = false; } }
+    private static string FormatRange(LeaveRequestDto item) =>
+        item.CalculationMode == LeaveCalculationMode.CalendarDays
+            ? $"{item.CalendarStartDate:yyyy/MM/dd} ～ {item.CalendarEndDate:yyyy/MM/dd}（{item.CalendarDayCount} 日）"
+            : $"{TaipeiTime.Format(item.StartAt)} ～ {TaipeiTime.Format(item.EndAt)}";
+    private static string Friendly(Exception ex) => ex is ForbiddenAccessException or ApplicationValidationException ? ex.Message : "查詢全部請假申請時發生錯誤。";
+}

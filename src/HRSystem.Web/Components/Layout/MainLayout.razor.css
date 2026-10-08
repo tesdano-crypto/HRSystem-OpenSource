@@ -1,0 +1,92 @@
+.app-header {
+    --header-height: 64px;
+    background: #0f5a78;
+    color: white;
+    min-height: var(--header-height);
+}
+
+.header-content {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    min-height: 64px;
+    padding: 0 24px;
+    width: 100%;
+}
+
+.header-spacer { flex: 1; }
+.brand-title { font-size: 18px; font-weight: 650; }
+.brand-subtitle { color: rgba(255,255,255,.72); font-size: 12px; margin-top: 2px; }
+.menu-toggle { display: none; }
+.account-summary { display: grid; text-align: right; font-size: .78rem; }
+.account-summary a { color: white; font-size: .9rem; font-weight: 600; text-decoration: none; }
+.account-summary span { color: rgba(255,255,255,.72); }
+.header-button { border: 1px solid rgba(255,255,255,.55); border-radius: .25rem; background: transparent; color: white; padding: .4rem .65rem; cursor: pointer; }
+
+.app-shell {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    min-height: calc(100vh - 64px);
+    position: relative;
+}
+
+.app-sidebar {
+    background: #f7f9fb;
+    border-right: 1px solid #dde3e7;
+    overflow-y: auto;
+    padding: 16px 10px;
+}
+
+.app-content {
+    background: #f3f6f8;
+    min-width: 0;
+    padding: 28px;
+}
+
+.menu-backdrop { display: none; }
+
+#blazor-error-ui {
+    background: #fff4ce;
+    bottom: 0;
+    box-shadow: 0 -1px 3px rgba(0,0,0,.2);
+    color: #3b3a39;
+    display: none;
+    left: 0;
+    padding: 12px 48px 12px 20px;
+    position: fixed;
+    width: 100%;
+    z-index: 2000;
+}
+
+#blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: 16px; }
+
+@media (max-width: 767px) {
+    .header-content { padding: 0 12px; }
+    .menu-toggle { display: inline-flex; }
+    .app-shell { display: block; }
+    .app-sidebar {
+        bottom: 0;
+        box-shadow: 4px 0 16px rgba(0,0,0,.18);
+        left: 0;
+        position: fixed;
+        top: 64px;
+        transform: translateX(-105%);
+        transition: transform .2s ease;
+        width: 270px;
+        z-index: 1100;
+    }
+    .app-sidebar.menu-open { transform: translateX(0); }
+    .menu-backdrop {
+        background: rgba(0,0,0,.35);
+        border: 0;
+        bottom: 0;
+        display: block;
+        left: 0;
+        position: fixed;
+        right: 0;
+        top: 64px;
+        z-index: 1000;
+    }
+    .app-content { padding: 18px 14px; }
+    .brand-subtitle { display: none; }
+}

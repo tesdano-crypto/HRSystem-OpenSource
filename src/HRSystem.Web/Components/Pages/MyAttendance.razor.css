@@ -1,0 +1,13 @@
+.my-attendance-filters { margin-block: 1rem; }
+.filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .75rem; }
+.my-attendance-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: .75rem; margin-block: 1rem; }
+.my-attendance-summary > div { display: flex; flex-direction: column; padding: .75rem; border: 1px solid var(--neutral-stroke-rest); border-radius: .5rem; text-align: center; }
+.my-attendance-summary strong { font-size: 1.35rem; }
+.summary-alert strong, .anomaly-time { color: #b10e1e; font-weight: 700; }
+.overstay-warning { color: #835c00; font-weight: 600; }
+.muted { color: var(--neutral-foreground-hint); font-size: .85rem; }
+.status-badge { display: inline-block; margin: .1rem; padding: .15rem .4rem; border-radius: 999px; background: #e7e7e7; white-space: nowrap; }
+.status-badge.danger { background: #fde7e9; color: #a80000; }
+.status-badge.warning { background: #fff4ce; color: #835c00; }
+.status-badge.success { background: #dff6dd; color: #0b6a0b; }
+.my-attendance-grid { margin-top: 1rem; }

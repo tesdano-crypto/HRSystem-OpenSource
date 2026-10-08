@@ -1,0 +1,115 @@
+@page "/admin/company-calendar"
+@attribute [Authorize(Policy = PolicyNames.CompanyCalendarManage)]
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.CompanyCalendars
+@inject ICompanyCalendarService CalendarService
+@inject IToastService ToastService
+
+<PageTitle>行事曆管理</PageTitle>
+<PageHeader Title="行事曆管理" Description="驗證經審查的 JSON Manifest、建立完整年度草稿並管理發布流程。" />
+
+<section class="editor-panel">
+    <h2>驗證 Manifest</h2>
+    <p>檔案必須是不含 BOM、最大 256 KiB 的 canonical JSON。</p>
+    <InputFile OnChange="ReadManifestAsync" accept=".json,application/json" />
+    @if (_preview is not null)
+    {
+        <dl>
+            <dt>年度</dt><dd>@_preview.Year</dd>
+            <dt>來源</dt><dd>@_preview.SourceTitle</dd>
+            <dt>Manifest</dt><dd>@_preview.ManifestVersion / @_preview.ManifestHash</dd>
+            <dt>日期</dt><dd>@_preview.TotalDays 日（工作日 @_preview.WorkingDays、非工作日 @_preview.NonWorkingDays）</dd>
+        </dl>
+        <FluentButton Appearance="@Appearance.Accent" Disabled="_busy" OnClick="InitializeAsync">
+            建立 @_preview.Year 年草稿
+        </FluentButton>
+    }
+</section>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_loading)
+{
+    <LoadingState />
+}
+else if (_years.Count == 0)
+{
+    <EmptyState />
+}
+else
+{
+    <div class="grid-shell">
+        <FluentDataGrid Items="@_years.AsQueryable()" ResizableColumns="true">
+            <PropertyColumn Property="@(x => x.Year)" Title="年度" />
+            <PropertyColumn Property="@(x => x.Status)" Title="狀態" />
+            <PropertyColumn Property="@(x => x.ManifestVersion)" Title="版本" />
+            <PropertyColumn Property="@(x => x.SourceTitle)" Title="來源" />
+            <TemplateColumn Title="操作" Context="item">
+                <a href="@($"/admin/company-calendar/{item.Year}")">管理</a>
+            </TemplateColumn>
+        </FluentDataGrid>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<CompanyCalendarYearDto> _years = [];
+    private CompanyCalendarManifestPreview? _preview;
+    private byte[] _manifestBytes = [];
+    private string? _error;
+    private bool _loading = true;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try { _years = await CalendarService.GetManagementYearsAsync(); }
+        catch { _error = "載入行事曆管理資料時發生錯誤，請稍後再試。"; }
+        finally { _loading = false; }
+    }
+
+    private async Task ReadManifestAsync(InputFileChangeEventArgs args)
+    {
+        _error = null; _preview = null; _manifestBytes = [];
+        try
+        {
+            await using var input = args.File.OpenReadStream(256 * 1024);
+            await using var buffer = new MemoryStream();
+            await input.CopyToAsync(buffer);
+            _manifestBytes = buffer.ToArray();
+            await using var previewStream = new MemoryStream(_manifestBytes, writable: false);
+            _preview = await CalendarService.PreviewInitializationAsync(previewStream);
+        }
+        catch (Exception exception) { _error = Friendly(exception); }
+    }
+
+    private async Task InitializeAsync()
+    {
+        if (_preview is null || _manifestBytes.Length == 0) return;
+        _busy = true; _error = null;
+        try
+        {
+            await CalendarService.InitializeDraftAsync(new InitializeCompanyCalendarRequest
+            {
+                ManifestBytes = _manifestBytes,
+                ExpectedManifestHash = _preview.ManifestHash
+            });
+            ToastService.ShowSuccess($"{_preview.Year} 年公司行事曆草稿已建立。");
+            _preview = null; _manifestBytes = [];
+            await LoadAsync();
+        }
+        catch (Exception exception) { _error = Friendly(exception); ToastService.ShowError(_error); }
+        finally { _busy = false; }
+    }
+
+    private static string Friendly(Exception exception) => exception switch
+    {
+        ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException
+            => exception.Message,
+        HRSystem.Domain.Common.DomainValidationException => exception.Message,
+        _ => "處理公司行事曆時發生錯誤，請稍後再試。"
+    };
+}

@@ -1,0 +1,7 @@
+@page "/attendance-exceptions/approvals"
+@attribute [Authorize(Policy = PolicyNames.AttendanceExceptionApprove)]
+@using HRSystem.Application.AttendanceExceptions
+@inject IAttendanceExceptionService Service
+<PageTitle>天然災害出勤豁免審核</PageTitle><PageHeader Title="天然災害出勤豁免審核" Description="主管僅能處理管理範圍內員工；此流程不是請假。"/>
+@if(!string.IsNullOrWhiteSpace(_error)){<FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>}else if(_loading){<LoadingState/>}else if(_result is null||_result.Items.Count==0){<EmptyState Title="目前沒有待處理申請" Description="送審或取消申請會顯示在這裡。"/>}else{<div class="grid-shell"><table class="data-table"><thead><tr><th>單號</th><th>員工</th><th>日期</th><th>原因</th><th>影響</th><th>項目</th></tr></thead><tbody>@foreach(var item in _result.Items){<tr><td><a href="@($"/attendance-exceptions/{item.Id}")">@item.RequestNumber</a></td><td>@item.EmployeeNumber－@item.EmployeeName</td><td>@item.WorkDate</td><td>@AttendanceExceptionRequests.ReasonText(item.ReasonType)</td><td>@AttendanceExceptionRequests.ImpactText(item.ImpactType)</td><td>@AttendanceExceptionRequests.StatusText(item.Status)</td></tr>}</tbody></table></div>}
+@code{private readonly AttendanceExceptionQuery _query=new();private HRSystem.Application.Common.Models.PagedResult<AttendanceExceptionDto>? _result;private bool _loading=true;private string? _error;protected override async Task OnInitializedAsync(){try{_result=await Service.GetPendingApprovalsAsync(_query);}catch(Exception ex){_error=ex.Message;}finally{_loading=false;}}}

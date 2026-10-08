@@ -1,0 +1,65 @@
+@inherits LayoutComponentBase
+
+<FluentLayout>
+    <FluentHeader Class="app-header">
+        <div class="header-content">
+            <FluentButton Class="menu-toggle" Appearance="@Appearance.Stealth" OnClick="@ToggleMenu" AriaLabel="切換主選單">☰</FluentButton>
+            <div>
+                <div class="brand-title"><OrganizationTitle /></div>
+                <div class="brand-subtitle">公司內網工作入口</div>
+            </div>
+            <div class="header-spacer"></div>
+            <AuthorizeView>
+                <Authorized Context="auth">
+                    <div class="account-summary">
+                        <a href="/account/profile">@(auth.User.FindFirst("display_name")?.Value ?? auth.User.Identity?.Name)</a>
+                        <span>@string.Join(" / ", auth.User.FindAll(System.Security.Claims.ClaimTypes.Role).Select(x => x.Value))</span>
+                    </div>
+                    <form method="post" action="/logout" data-enhance="false">
+                        <AntiforgeryToken />
+                        <button class="header-button" type="submit">登出</button>
+                    </form>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+    </FluentHeader>
+
+    <FluentBodyContent>
+        <div class="app-shell">
+            <aside class="@SidebarCssClass">
+                <AuthorizeView>
+                    <Authorized Context="navigationUser">
+                        <AppNavigation User="navigationUser.User" ItemSelected="CloseMenu" />
+                    </Authorized>
+                </AuthorizeView>
+            </aside>
+            @if (_menuOpen)
+            {
+                <button class="menu-backdrop" type="button" aria-label="關閉主選單" @onclick="CloseMenu"></button>
+            }
+            <main class="app-content" @onclick="CloseMenu">
+                @Body
+            </main>
+        </div>
+    </FluentBodyContent>
+</FluentLayout>
+
+<FluentToastProvider />
+<FluentDialogProvider />
+<FluentTooltipProvider />
+<FluentMessageBarProvider />
+<FluentMenuProvider />
+
+<div id="blazor-error-ui" data-nosnippet>
+    系統發生未預期錯誤。
+    <a href="." class="reload">重新載入</a>
+    <span class="dismiss">關閉</span>
+</div>
+
+@code {
+    private bool _menuOpen;
+    private string SidebarCssClass => _menuOpen ? "app-sidebar menu-open" : "app-sidebar";
+
+    private void ToggleMenu() => _menuOpen = !_menuOpen;
+    private void CloseMenu() => _menuOpen = false;
+}

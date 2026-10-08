@@ -1,0 +1,179 @@
+@page "/admin/attendance/shifts"
+@attribute [Authorize(Policy = PolicyNames.AttendanceManage)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@inject IAttendanceManagementService AttendanceService
+
+<PageTitle>班別設定</PageTitle>
+<PageHeader Title="班別設定" Description="建立與維護出勤判定規則；歷史每日結果保存計算時的班別快照。" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@_messageIntent">@_message</FluentMessageBar>
+}
+
+<EditForm Model="_model" OnValidSubmit="SaveAsync">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+    <div class="form-grid">
+        <div class="field"><label for="shift-code">代碼</label><InputText id="shift-code" @bind-Value="_model.Code" /></div>
+        <div class="field"><label for="shift-name">名稱</label><InputText id="shift-name" @bind-Value="_model.Name" /></div>
+        <div class="field"><label for="shift-start">上班時間</label><input id="shift-start" type="time" step="1" @bind="_model.ScheduledStartTime" /></div>
+        <div class="field"><label for="shift-late">遲到門檻</label><input id="shift-late" type="time" step="1" @bind="_model.LateThresholdTime" /></div>
+        <div class="field"><label for="shift-lunch-start">午休開始</label><input id="shift-lunch-start" type="time" step="1" @bind="_model.LunchBreakStartTime" /></div>
+        <div class="field"><label for="shift-lunch-end">午休結束</label><input id="shift-lunch-end" type="time" step="1" @bind="_model.LunchBreakEndTime" /></div>
+        <div class="field"><label for="shift-end">下班時間</label><input id="shift-end" type="time" step="1" @bind="_model.ScheduledEndTime" /></div>
+        <div class="field"><label for="shift-minutes">預期工作分鐘</label><InputNumber id="shift-minutes" @bind-Value="_model.ExpectedWorkMinutes" /></div>
+        <div class="field"><label><InputCheckbox @bind-Value="_model.IsLunchPunchRequired" /> 午休需打卡</label></div>
+        <div class="field"><label><InputCheckbox @bind-Value="_model.IsOvernightShift" /> 跨日班別</label></div>
+    </div>
+    <div class="toolbar">
+        <FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="_loading">儲存班別</FluentButton>
+        <FluentButton Appearance="@Appearance.Stealth" OnClick="Reset">新增 NORMAL 班別</FluentButton>
+    </div>
+</EditForm>
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_shifts.Count == 0)
+{
+    <EmptyState Title="尚未建立班別" Description="請由管理員明確建立 NORMAL 班別；系統不會在啟動時自動寫入。" />
+}
+else
+{
+    <div class="grid-shell">
+        <table class="data-table">
+            <thead>
+                <tr><th>代碼</th><th>名稱</th><th>上班</th><th>遲到門檻</th><th>午休</th><th>下班</th><th>分鐘</th><th>狀態</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var item in _shifts)
+                {
+                    <tr>
+                        <td>@item.Code</td>
+                        <td>@item.Name</td>
+                        <td>@item.ScheduledStartTime</td>
+                        <td>@item.LateThresholdTime</td>
+                        <td>@item.LunchBreakStartTime–@item.LunchBreakEndTime</td>
+                        <td>@item.ScheduledEndTime</td>
+                        <td>@item.ExpectedWorkMinutes</td>
+                        <td>@(item.IsActive ? "啟用" : "停用")</td>
+                        <td>
+                            <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => Edit(item))">編輯</FluentButton>
+                            <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => SetActiveAsync(item))">
+                                @(item.IsActive ? "停用" : "啟用")
+                            </FluentButton>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<AttendanceShiftDto> _shifts = [];
+    private SaveAttendanceShiftRequest _model = NewNormalShift();
+    private bool _loading = true;
+    private string? _message;
+    private MessageIntent _messageIntent = MessageIntent.Info;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _shifts = await AttendanceService.GetShiftsAsync(true);
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _loading = true;
+        try
+        {
+            await AttendanceService.SaveShiftAsync(_model);
+            _messageIntent = MessageIntent.Success;
+            _message = "班別已儲存。";
+            Reset();
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+            _loading = false;
+        }
+    }
+
+    private async Task SetActiveAsync(AttendanceShiftDto item)
+    {
+        try
+        {
+            await AttendanceService.SetShiftActiveAsync(
+                item.Id,
+                !item.IsActive,
+                item.RowVersion);
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+    }
+
+    private void Edit(AttendanceShiftDto item)
+    {
+        _model = new SaveAttendanceShiftRequest
+        {
+            Id = item.Id,
+            Code = item.Code,
+            Name = item.Name,
+            ScheduledStartTime = item.ScheduledStartTime,
+            LateThresholdTime = item.LateThresholdTime,
+            LunchBreakStartTime = item.LunchBreakStartTime,
+            LunchBreakEndTime = item.LunchBreakEndTime,
+            ScheduledEndTime = item.ScheduledEndTime,
+            ExpectedWorkMinutes = item.ExpectedWorkMinutes,
+            IsLunchPunchRequired = item.IsLunchPunchRequired,
+            IsOvernightShift = item.IsOvernightShift,
+            RowVersion = item.RowVersion
+        };
+    }
+
+    private void Reset() => _model = NewNormalShift();
+
+    private static SaveAttendanceShiftRequest NewNormalShift() => new()
+    {
+        Code = "NORMAL",
+        Name = "正常班",
+        ScheduledStartTime = new TimeOnly(8, 0),
+        LateThresholdTime = new TimeOnly(8, 1),
+        LunchBreakStartTime = new TimeOnly(12, 0),
+        LunchBreakEndTime = new TimeOnly(13, 30),
+        ScheduledEndTime = new TimeOnly(17, 30),
+        ExpectedWorkMinutes = 480,
+        IsLunchPunchRequired = false,
+        IsOvernightShift = false
+    };
+
+    private void ShowError(Exception exception)
+    {
+        _messageIntent = MessageIntent.Error;
+        _message = exception is ApplicationValidationException or
+            ConcurrencyConflictException or ForbiddenAccessException
+            ? exception.Message
+            : "班別作業未完成，請稍後再試。";
+    }
+}

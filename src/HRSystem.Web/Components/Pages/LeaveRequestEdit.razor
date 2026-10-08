@@ -1,0 +1,269 @@
+@page "/leave-requests/{Id:guid}/edit"
+@attribute [Authorize(Policy = PolicyNames.LeaveRequestSelfService)]
+@using System.ComponentModel.DataAnnotations
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Application.LeaveRequests
+@using HRSystem.Domain.LeaveRequests
+@using HRSystem.Domain.MasterData
+@using HRSystem.Application.AnnualLeave
+@using HRSystem.Application.CompTime
+@using HRSystem.Domain.CompTime
+@inject ILeaveRequestService LeaveRequestService
+@inject IServiceProvider Services
+@inject IToastService ToastService
+@inject NavigationManager Navigation
+
+<PageTitle>編輯請假草稿</PageTitle>
+<PageHeader Title="編輯請假草稿" Description="只有草稿可以修改；特殊假別的結束日期會依核准規則計算。" />
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_error</FluentMessageBar>
+}
+else if (_item is null)
+{
+    <LoadingState />
+}
+else if (_item.Status != LeaveRequestStatus.Draft)
+{
+    <FluentMessageBar Intent="@MessageIntent.Warning">此請假已不是草稿，無法編輯。</FluentMessageBar>
+}
+else
+{
+    <section class="editor-panel">
+        <EditForm EditContext="FormEditContext" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <div class="form-grid">
+                <div class="field">
+                    <label for="edit-leave-type">假別</label>
+                    <InputSelect id="edit-leave-type" @bind-Value="_form.LeaveTypeId" @bind-Value:after="LeaveTypeChangedAsync">
+                        @foreach (var option in _leaveTypes)
+                        {
+                            <option value="@option.Id">@option.Code — @option.Name@InactiveLabel(option.Id)</option>
+                        }
+                    </InputSelect>
+                </div>
+                @if (IsCalendarDays)
+                {
+                    <div class="field"><label for="edit-calendar-start">開始日期</label><InputDate id="edit-calendar-start" @bind-Value="_form.CalendarStartDate" @bind-Value:after="EstimateAsync" /></div>
+                    @if (IsMiscarriage)
+                    {
+                        <div class="field">
+                            <label for="edit-pregnancy-duration">妊娠期間</label>
+                            <InputSelect id="edit-pregnancy-duration" @bind-Value="_form.PregnancyDurationCategory" @bind-Value:after="EstimateAsync">
+                                <option value="">請選擇</option>
+                                <option value="@PregnancyDurationCategory.ThreeMonthsOrMore">妊娠滿三個月以上（28 日）</option>
+                                <option value="@PregnancyDurationCategory.TwoToUnderThreeMonths">妊娠滿二個月、未滿三個月（7 日）</option>
+                                <option value="@PregnancyDurationCategory.UnderTwoMonths">妊娠未滿二個月（5 日）</option>
+                            </InputSelect>
+                        </div>
+                    }
+                    @if (IsBedRest)
+                    {
+                        <div class="field"><label for="edit-calendar-end">結束日期</label><InputDate id="edit-calendar-end" @bind-Value="_form.CalendarEndDate" @bind-Value:after="EstimateAsync" /></div>
+                    }
+                    else
+                    {
+                        <div class="field"><label>結束日期（系統計算）</label><output id="edit-calendar-end-readonly">@(_estimate.CalendarEndDate?.ToString("yyyy/MM/dd") ?? "—")</output></div>
+                    }
+                    <div class="field"><label>連續曆日</label><output id="edit-calendar-day-count">@(_estimate.CalendarDayCount?.ToString() ?? "—") 日</output></div>
+                    <div class="field"><label>預估出勤請假時數</label><output>@_estimate.DurationHours.ToString("0.##") 小時</output></div>
+                }
+                else
+                {
+                    <div class="field"><label for="edit-leave-start">開始時間</label><input id="edit-leave-start" type="datetime-local" @bind="_form.StartLocal" @bind:after="EstimateAsync" /></div>
+                    <div class="field"><label for="edit-leave-end">結束時間</label><input id="edit-leave-end" type="datetime-local" @bind="_form.EndLocal" @bind:after="EstimateAsync" /></div>
+                    <div class="field"><label>預估請假時數</label><output>@_estimate.DurationHours.ToString("0.##") 小時</output></div>
+                }
+                @if (IsAnnual && _annualBalance is not null)
+                {
+                    <div class="field"><label>特休可用</label><output>@(_annualBalance.AvailableMinutes / 60m) 小時</output></div>
+                    <div class="field"><label>本次申請</label><output>@_estimate.DurationHours.ToString("0.##") 小時</output></div>
+                    <div class="field"><label>送出後剩餘</label><output>@Math.Max(0m, _annualBalance.AvailableMinutes / 60m - _estimate.DurationHours).ToString("0.##") 小時</output></div>
+                }
+                @if (IsCompTime && _compTimeBalance is not null)
+                {
+                    <div class="field"><label>目前可用補休</label><output>@_compTimeBalance.AvailableHours.ToString("0.##") 小時</output></div>
+                    <div class="field"><label>本次申請</label><output>@_estimate.DurationHours.ToString("0.##") 小時</output></div>
+                    <div class="field"><label>核准後剩餘</label><output>@Math.Max(0m, _compTimeBalance.AvailableHours - _estimate.DurationHours).ToString("0.##") 小時</output></div>
+                }
+                <div class="field full"><label for="edit-leave-reason">請假原因</label><InputTextArea id="edit-leave-reason" @bind-Value="_form.Reason" @oninput="HandleReasonInput" /><ValidationMessage For="@(() => _form.Reason)" /></div>
+            </div>
+            @foreach (var message in _estimate.Messages)
+            {
+                <FluentMessageBar Intent="@(_estimate.CanSubmit ? MessageIntent.Info : MessageIntent.Warning)">@message</FluentMessageBar>
+            }
+            @if (IsMaternity)
+            {
+                <FluentMessageBar Intent="@MessageIntent.Info">產假固定為 8 週（56 個連續曆日），結束日期由系統自動計算。</FluentMessageBar>
+            }
+            @if (IsBedRest)
+            {
+                <FluentMessageBar Intent="@MessageIntent.Warning">安胎休養假通常需要醫師證明；目前附件上傳功能尚未提供，本次仍可送出，請依公司流程另行提供證明。</FluentMessageBar>
+            }
+            @if (_inactiveLeaveTypeId == _form.LeaveTypeId)
+            {
+                <FluentMessageBar Intent="@MessageIntent.Warning">此假別目前未開放；草稿可閱讀，但必須改選可用假別才能送出。</FluentMessageBar>
+            }
+            <div class="form-actions">
+                <FluentButton Appearance="@Appearance.Stealth" OnClick="@(() => Navigation.NavigateTo($"/leave-requests/{Id}"))">取消</FluentButton>
+                <FluentButton Appearance="@Appearance.Accent" Type="@ButtonType.Submit" Disabled="@(_saving || !_estimate.CanSubmit)">儲存</FluentButton>
+            </div>
+        </EditForm>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    private LeaveRequestDto? _item;
+    private IReadOnlyList<LeaveTypeOptionDto> _leaveTypes = [];
+    private readonly EditModel _form = new();
+    private EditContext? _editContext;
+    private EditContext FormEditContext => _editContext ??= new EditContext(_form);
+    private bool _saving;
+    private Guid? _inactiveLeaveTypeId;
+    private string? _error;
+    private LeaveDurationEstimateDto _estimate = new(0m, false, []);
+    private int _estimateVersion;
+    private LeaveTypeOptionDto? SelectedType => _leaveTypes.FirstOrDefault(item => item.Id == _form.LeaveTypeId);
+    private bool IsCalendarDays => SelectedType?.CalculationMode == LeaveCalculationMode.CalendarDays;
+    private bool IsMiscarriage => string.Equals(SelectedType?.Code, CalendarDayLeavePolicy.MiscarriageCode, StringComparison.Ordinal);
+    private bool IsMaternity => string.Equals(SelectedType?.Code, CalendarDayLeavePolicy.MaternityCode, StringComparison.Ordinal);
+    private bool IsBedRest => string.Equals(SelectedType?.Code, CalendarDayLeavePolicy.PregnancyBedRestCode, StringComparison.Ordinal);
+    private bool IsAnnual => string.Equals(SelectedType?.Code, HRSystem.Domain.AnnualLeave.AnnualLeavePolicy.LeaveTypeCode, StringComparison.Ordinal);
+    private bool IsCompTime => CompTimePolicy.IsCompTime(SelectedType?.Code);
+    private AnnualLeaveBalanceDto? _annualBalance;
+    private CompTimeBalanceDto? _compTimeBalance;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _leaveTypes = await LeaveRequestService.GetAvailableLeaveTypesAsync();
+            if (Services.GetService(typeof(IAnnualLeaveService)) is IAnnualLeaveService annualLeaveService)
+            {
+                _annualBalance = await annualLeaveService.GetMyBalanceAsync();
+            }
+            if (Services.GetService(typeof(ICompTimeService)) is ICompTimeService compTimeService)
+            {
+                _compTimeBalance = await compTimeService.GetMyBalanceAsync();
+            }
+            _item = await LeaveRequestService.GetRequestDetailAsync(Id);
+            _inactiveLeaveTypeId = _leaveTypes.All(item => item.Id != _item.LeaveTypeId) ? _item.LeaveTypeId : null;
+            if (_inactiveLeaveTypeId.HasValue)
+            {
+                _leaveTypes =
+                [
+                    new LeaveTypeOptionDto(
+                        _item.LeaveTypeId,
+                        _item.LeaveTypeCode,
+                        _item.LeaveTypeName,
+                        CalculationMode: _item.CalculationMode),
+                    .. _leaveTypes
+                ];
+            }
+
+            _form.LeaveTypeId = _item.LeaveTypeId;
+            _form.StartLocal = TaipeiTime.ToLocalDateTime(_item.StartAt);
+            _form.EndLocal = TaipeiTime.ToLocalDateTime(_item.EndAt);
+            _form.CalendarStartDate = _item.CalendarStartDate;
+            _form.CalendarEndDate = _item.CalendarEndDate;
+            _form.PregnancyDurationCategory = _item.PregnancyDurationCategory;
+            _form.Reason = _item.Reason;
+            await EstimateAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = Friendly(ex);
+        }
+    }
+
+    private async Task LeaveTypeChangedAsync()
+    {
+        _form.PregnancyDurationCategory = null;
+        _form.CalendarStartDate ??= DateOnly.FromDateTime(_form.StartLocal);
+        _form.CalendarEndDate ??= _form.CalendarStartDate;
+        await EstimateAsync();
+    }
+
+    private async Task EstimateAsync()
+    {
+        var version = ++_estimateVersion;
+        try
+        {
+            var estimate = await LeaveRequestService.EstimateDurationAsync(new LeaveDurationEstimateRequest
+            {
+                LeaveTypeId = _form.LeaveTypeId,
+                StartAt = TaipeiTime.FromLocal(_form.StartLocal),
+                EndAt = TaipeiTime.FromLocal(_form.EndLocal),
+                CalendarStartDate = IsCalendarDays ? _form.CalendarStartDate : null,
+                CalendarEndDate = IsBedRest ? _form.CalendarEndDate : null,
+                PregnancyDurationCategory = IsMiscarriage ? _form.PregnancyDurationCategory : null
+            });
+            if (version == _estimateVersion) _estimate = estimate;
+        }
+        catch (Exception ex)
+        {
+            if (version == _estimateVersion)
+            {
+                _estimate = new LeaveDurationEstimateDto(0m, false, [Friendly(ex)]);
+            }
+        }
+    }
+
+    private void HandleReasonInput(ChangeEventArgs e)
+    {
+        _form.Reason = e.Value?.ToString() ?? string.Empty;
+        FormEditContext.NotifyFieldChanged(new FieldIdentifier(_form, nameof(EditModel.Reason)));
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_saving || _item is null) return;
+        _saving = true;
+        _error = null;
+        try
+        {
+            await LeaveRequestService.UpdateDraftAsync(new UpdateLeaveDraftRequest
+            {
+                Id = Id,
+                LeaveTypeId = _form.LeaveTypeId,
+                StartAt = TaipeiTime.FromLocal(_form.StartLocal),
+                EndAt = TaipeiTime.FromLocal(_form.EndLocal),
+                CalendarStartDate = IsCalendarDays ? _form.CalendarStartDate : null,
+                CalendarEndDate = IsBedRest ? _form.CalendarEndDate : null,
+                PregnancyDurationCategory = IsMiscarriage ? _form.PregnancyDurationCategory : null,
+                Reason = _form.Reason,
+                RowVersion = _item.RowVersion
+            });
+            ToastService.ShowSuccess("請假草稿已更新。");
+            Navigation.NavigateTo($"/leave-requests/{Id}");
+        }
+        catch (Exception ex)
+        {
+            _error = Friendly(ex);
+            ToastService.ShowError(_error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private string InactiveLabel(Guid leaveTypeId) => leaveTypeId == _inactiveLeaveTypeId ? "（未開放）" : string.Empty;
+    private static string Friendly(Exception ex) => ex is ApplicationValidationException or EntityNotFoundException or ConcurrencyConflictException or ForbiddenAccessException or HRSystem.Domain.Common.DomainValidationException
+        ? ex.Message
+        : "更新請假草稿時發生錯誤。";
+
+    private sealed class EditModel
+    {
+        public Guid LeaveTypeId { get; set; }
+        public DateTime StartLocal { get; set; }
+        public DateTime EndLocal { get; set; }
+        public DateOnly? CalendarStartDate { get; set; }
+        public DateOnly? CalendarEndDate { get; set; }
+        public PregnancyDurationCategory? PregnancyDurationCategory { get; set; }
+        [Required(ErrorMessage = "請假原因為必填欄位。"), StringLength(500)]
+        public string Reason { get; set; } = string.Empty;
+    }
+}

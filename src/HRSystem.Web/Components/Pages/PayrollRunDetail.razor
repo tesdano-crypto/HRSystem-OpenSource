@@ -1,0 +1,54 @@
+@page "/admin/payroll/runs/{RunId:guid}"
+@attribute [Authorize(Policy = PolicyNames.PayrollView)]
+@using HRSystem.Application.Payroll
+@using HRSystem.Domain.Payroll
+@using HRSystem.Application.Approvals
+@using HRSystem.Application.Abstractions.Security
+@inject IPayrollService Payroll
+@inject IApprovalService Approvals
+@inject ICurrentUser CurrentUser
+<PageTitle>薪資試算明細</PageTitle>
+<PageHeader Title="薪資試算明細" Description="依建立試算時的資料固定保存；尚有待處理項目時，不會顯示不正確的實領薪資。" />
+<p><a href="/admin/payroll">← 返回薪資月份</a></p>
+@if(_loading){<LoadingState/>}
+else if(_run is not null)
+{
+ <section class="content-card"><p>版本 @_run.RevisionNumber；建立時間：@_run.CreatedAtUtc.ToLocalTime()；狀態：@PayrollDisplay.RunStatus(_run.Status)；本次新建快照：@_run.Employees.Count</p><p><a href="/admin/payroll/periods/@_run.PeriodId">回到本月薪資工作台</a></p></section>
+ @if (_canSubmitApproval)
+ {
+  <section class="content-card">
+   <h2>送出薪資簽核</h2>
+   <p>送簽內容只包含月份、人數與總額摘要；核准時會重新驗證薪資來源指紋。</p>
+   <div class="field"><label for="payroll-approver">簽核人</label><InputSelect id="payroll-approver" @bind-Value="_approverUserId"><option value="">請選擇</option>@foreach(var actor in _approvers){<option value="@actor.UserId">@actor.DisplayName</option>}</InputSelect></div>
+   <FluentButton Appearance="@Appearance.Accent" Disabled="_approvalBusy" OnClick="SubmitApprovalAsync">送出簽核</FluentButton>
+   @if(!string.IsNullOrWhiteSpace(_approvalMessage)){<p>@_approvalMessage</p>}
+  </section>
+ }
+ @foreach(var employee in _run.Employees)
+ {
+  <section class="content-card"><h2>@employee.EmployeeCode — @employee.EmployeeName</h2><p>@employee.DepartmentName；薪資方案 @(employee.PlanCode is null?"尚未設定":"已套用")；@PayrollDisplay.EmployeeSetup(employee.SetupStatus)</p>
+   <h3>應發</h3>
+   <table class="data-table"><thead><tr><th>項目</th><th>來源</th><th>完整月額</th><th>比例政策</th><th>解析金額</th><th>狀態</th></tr></thead><tbody>
+   @foreach(var c in employee.Components.Where(x=>x.Category==PayrollComponentCategory.Earning)){<tr><td>@PayrollDisplay.Component(c.Code,c.Name,employee.PlanCode)</td><td>@PayrollDisplay.Source(c.SourceType)</td><td>@Money(c.FullMonthlyAmount)</td><td>@PayrollDisplay.Proration(c.ProrationKind)</td><td>@Money(c.ResolvedAmount)</td><td>@PayrollDisplay.CalculationStatus(c.CalculationStatus)</td></tr>}
+   </tbody></table><p><strong>應發總額：@Money(employee.GrossPay)</strong></p>
+   <h3>扣款</h3>
+   <table class="data-table"><thead><tr><th>項目</th><th>來源</th><th>解析金額</th><th>狀態</th></tr></thead><tbody>
+   @foreach(var c in employee.Components.Where(x=>x.Category==PayrollComponentCategory.Deduction)){<tr><td>@PayrollDisplay.Component(c.Code,c.Name,employee.PlanCode)</td><td>@PayrollDisplay.Source(c.SourceType)</td><td>@Money(c.ResolvedAmount)</td><td>@PayrollDisplay.CalculationStatus(c.CalculationStatus)</td></tr>}
+   </tbody></table><p><strong>扣款總額：@Money(employee.TotalDeductions)</strong></p>
+   <h3>實領薪資</h3>
+   @if(employee.TotalCalculationStatus==PayrollCalculationStatus.Resolved){<p><strong>@Money(employee.NetPay)</strong></p>}
+   else{<p><strong>尚有待處理項目，暫時無法計算實領薪資</strong>（@PayrollDisplay.CalculationStatus(employee.TotalCalculationStatus)）</p><ul>@foreach(var item in employee.TotalBlockingEvidence??[]){<li>@PayrollDisplay.BlockingReason(item)</li>}</ul>}
+  </section>
+  @foreach(var c in employee.Components.Where(x=>x.AttendanceAllowance is not null)){var a=c.AttendanceAllowance!;<section class="content-card"><h3>出席補貼</h3><p>標準 @Money(a.FullMonthlyAmount)；任職比例上限 @Money(a.EmploymentProratedMaximum)；不符合 @a.IneligibleDays 日；已解析 @Money(c.ResolvedAmount)</p>@if(a.Evidence.Count>0){<details><summary>不符合日期</summary><ul>@foreach(var e in a.Evidence){<li>@e.WorkDate：@ReasonLabel(e.Reasons)</li>}</ul></details>}</section>}
+  @foreach(var c in employee.Components.Where(x=>x.LeaveDeduction is not null)){var d=c.LeaveDeduction!;<section class="content-card"><h3>請假扣薪</h3><p>完整月底薪 @Money(d.FullMonthlyBaseAmount)；事假 @d.PersonalLeaveMinutes 分鐘／@Money(d.PersonalLeaveRawAmount)；病假 @d.SickLeaveMinutes 分鐘／@Money(d.SickLeaveRawAmount)；已解析扣款 @Money(c.ResolvedAmount)</p>@if(d.UnsupportedLeaveMinutes>0){<p>政策待確認：@d.UnsupportedLeaveMinutes 分鐘。</p>}@if(d.Evidence.Count>0){<details><summary>請假扣薪證據</summary><ul>@foreach(var e in d.Evidence){<li>@e.WorkDate：@e.LeaveTypeCode，@e.LeaveMinutes / @e.ScheduledMinutes 分鐘，比例 @(e.DeductionRate?.ToString("P0")??"政策待確認")</li>}</ul></details>}</section>}
+  @if(employee.OvertimePay is { } overtime){<section class="content-card"><h3>加班費</h3><p>月薪基礎 @Money(overtime.MonthlyOvertimeBase)；時薪基礎 @Money(overtime.HourlyBase)；認列 @overtime.TotalRecognizedMinutes 分鐘；合計 @Money(overtime.TotalOvertimePay)；@PayrollDisplay.CalculationStatus(overtime.CalculationStatus)</p><details><summary>基礎與每日分桶證據</summary><ul>@foreach(var item in overtime.IncludedComponents){<li>@PayrollDisplay.Component(item.Code, payrollPlanCode: employee.PlanCode)：@Money(item.FullMonthlyAmount)</li>}@foreach(var day in overtime.Days){<li>@day.WorkDate：@day.RecognizedMinutes 分（@day.FirstTwoHoursMinutes / @day.AfterTwoHoursMinutes / @day.AfterEightHoursMinutes）</li>}</ul></details><table class="data-table"><thead><tr><th>級距</th><th>分鐘</th><th>倍率</th><th>金額</th></tr></thead><tbody>@foreach(var b in overtime.Buckets){<tr><td>@BucketLabel(b.Bucket)</td><td>@b.Minutes</td><td>×@b.Multiplier</td><td>@Money(b.FinalPay)</td></tr>}</tbody></table></section>}
+ }
+}
+@code{
+ [Parameter]public Guid RunId{get;set;} private bool _loading=true; private PayrollRunDto? _run; private bool _canSubmitApproval,_approvalBusy; private string _approverUserId=string.Empty; private string? _approvalMessage; private IReadOnlyList<ApprovalActorDto> _approvers=[];
+ protected override async Task OnParametersSetAsync(){_loading=true;try{_run=await Payroll.GetRunAsync(RunId);_canSubmitApproval=CurrentUser.HasPermission(PolicyNames.PayrollSubmitApproval);if(_canSubmitApproval){_approvers=await Approvals.GetApproversAsync(HRSystem.Domain.Approvals.ApprovalType.Payroll);_approverUserId=_approvers.FirstOrDefault()?.UserId??string.Empty;}}finally{_loading=false;}}
+ private async Task SubmitApprovalAsync(){if(_approvalBusy||_run is null)return;_approvalBusy=true;try{var approval=await Approvals.SubmitAsync(new(){ApprovalType=HRSystem.Domain.Approvals.ApprovalType.Payroll,SourceId=_run.PeriodId,ApproverUserId=_approverUserId});_approvalMessage=$"已送出月份薪資簽核：{ApprovalDisplay.Status(approval.Status)}。";}catch(Exception ex){_approvalMessage=ex.Message;}finally{_approvalBusy=false;}}
+ private static string Money(decimal? value)=>value?.ToString("N2")??"—"; private static string Factor(decimal? value)=>value.HasValue?$"{value:P2}":"—";
+ private static string ReasonLabel(AttendanceAllowanceIneligibilityReason value){var labels=new List<string>();if(value.HasFlag(AttendanceAllowanceIneligibilityReason.Late))labels.Add("遲到");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.EarlyLeave))labels.Add("早退");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.MissingClockIn))labels.Add("上班缺卡");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.MissingClockOut))labels.Add("下班缺卡");if(value.HasFlag(AttendanceAllowanceIneligibilityReason.ApprovedLeave))labels.Add("正式請假");return string.Join(" + ",labels);}
+ private static string BucketLabel(OvertimePayBucket value)=>value switch{OvertimePayBucket.FirstTwoHours=>"前 2 小時",OvertimePayBucket.AfterTwoHours=>"2 小時後",OvertimePayBucket.AfterEightHours=>"8 小時後",_=>value.ToString()};
+}

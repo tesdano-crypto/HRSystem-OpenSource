@@ -1,0 +1,15 @@
+<div class="pager" aria-label="分頁">
+    <span>第 @PageNumber / @TotalPages 頁，共 @TotalCount 筆</span>
+    <FluentButton Appearance="@Appearance.Stealth" Disabled="@(PageNumber <= 1)" OnClick="PreviousAsync">上一頁</FluentButton>
+    <FluentButton Appearance="@Appearance.Stealth" Disabled="@(PageNumber >= TotalPages)" OnClick="NextAsync">下一頁</FluentButton>
+</div>
+
+@code {
+    [Parameter] public int PageNumber { get; set; } = 1;
+    [Parameter] public int TotalPages { get; set; } = 1;
+    [Parameter] public int TotalCount { get; set; }
+    [Parameter] public EventCallback<int> PageChanged { get; set; }
+
+    private Task PreviousAsync() => PageChanged.InvokeAsync(PageNumber - 1);
+    private Task NextAsync() => PageChanged.InvokeAsync(PageNumber + 1);
+}

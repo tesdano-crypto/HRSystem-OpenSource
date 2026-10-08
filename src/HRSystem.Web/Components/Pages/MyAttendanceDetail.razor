@@ -1,0 +1,84 @@
+@page "/my-attendance/{ResultId:guid}"
+@attribute [Authorize(Policy = PolicyNames.AttendanceSelfService)]
+@using HRSystem.Application.Attendance
+@using HRSystem.Application.Common.Exceptions
+@using HRSystem.Domain.Attendance
+@inject IAttendanceReviewService AttendanceReviewService
+
+<PageTitle>個人出勤明細</PageTitle>
+<PageHeader Title="個人出勤明細" Description="查看自己的排定時間、最終認列時間與公開處理狀態。" />
+
+<p><a href="/my-attendance">← 返回我的每日出勤</a></p>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <FluentMessageBar Intent="@MessageIntent.Error">@_message</FluentMessageBar>
+}
+
+@if (_loading)
+{
+    <LoadingState />
+}
+else if (_result is { HasEmployeeBinding: false })
+{
+    <EmptyState Title="目前帳號尚未綁定員工資料" Description="目前帳號尚未綁定員工資料，無法查看個人出勤。" />
+}
+else if (_result?.Item is not { } item)
+{
+    <EmptyState Title="找不到個人出勤明細" Description="指定資料不存在，或不屬於目前登入員工。" />
+}
+else
+{
+    <section class="content-card detail-card">
+        <h2>@item.WorkDate.ToString("yyyy/MM/dd") @Weekday(item.WorkDate)</h2>
+        <dl class="detail-grid">
+            <dt>班別</dt><dd>@(item.ShiftName ?? "未指派班別")</dd>
+            <dt>排定時間</dt><dd>@ScheduledText(item)</dd>
+            <dt>實際上班</dt><dd class="@(item.IsLate ? "anomaly-time" : null)">@ClockText(item.EffectiveClockInLocalTime, item.MissingClockIn)</dd>
+            <dt>實際下班</dt><dd class="@ClockOutCss(item)">@ClockText(item.EffectiveClockOutLocalTime, item.MissingClockOut)</dd>
+            <dt>出勤狀態</dt><dd>@AttendanceStatus(item)</dd>
+            <dt>遲到／早退</dt><dd>遲到 @item.LateMinutes 分鐘／早退 @item.EarlyLeaveMinutes 分鐘</dd>
+            <dt>缺卡</dt><dd>@MissingPunchText(item)</dd>
+            <dt>延後下班</dt><dd>@OverstayText(item)</dd>
+            <dt>請假</dt><dd>@LeaveText(item)</dd>
+            <dt>出勤分鐘</dt><dd>必須 @item.RequiredAttendanceMinutes／認列 @item.RecognizedWorkMinutes／未覆蓋缺勤 @item.MissingMinutes</dd>
+            <dt>加班申請／認列</dt><dd>@OvertimeText(item.OvertimeRequest) <a href="/my-overtime">查看加班申請</a></dd>
+            <dt>處理狀態</dt>
+            <dd>
+                @if (item.ReviewItems.Count == 0) { <span>—</span> }
+                @foreach (var review in item.ReviewItems) { <div>@AnomalyLabel(review.AnomalyType)：@review.PublicStatus</div> }
+            </dd>
+            <dt>出勤更正申請</dt>
+            <dd>
+                @if (item.CorrectionRequests.Count == 0) { <a href="@($"/my-attendance-requests?attendanceResultId={item.DailyAttendanceResultId:D}")">提出申請</a> }
+                else { @foreach (var request in item.CorrectionRequests) { <div>@request.PublicStatus — <a href="/my-attendance-requests">查看歷程</a></div> } }
+            </dd>
+        </dl>
+    </section>
+    <FluentMessageBar Intent="@MessageIntent.Info">本明細只顯示最終認列上下班時間，不顯示完整原始打卡歷程或管理人員內部備註。</FluentMessageBar>
+}
+
+@code {
+    [Parameter] public Guid ResultId { get; set; }
+    private MyAttendanceDetailResult? _result;
+    private bool _loading;
+    private string? _message;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try { _loading = true; _message = null; _result = await AttendanceReviewService.GetMineDetailAsync(ResultId); }
+        catch (Exception ex) when (ex is ApplicationValidationException or ForbiddenAccessException) { _message = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private static string ScheduledText(MyAttendanceRowDto item) => item.ScheduledStartTime.HasValue && item.ScheduledEndTime.HasValue ? $"{item.ScheduledStartTime:HH\\:mm}–{item.ScheduledEndTime:HH\\:mm}" : item.IsRequiredWorkday ? "未指派班別" : "非工作日";
+    private static string ClockText(DateTime? value, bool missing) => missing ? "缺卡" : value?.ToString("HH:mm") ?? "—";
+    private static string? ClockOutCss(MyAttendanceRowDto item) => item.IsEarlyLeave || item.OverstayLevel == AttendanceReviewOverstayLevel.PotentialUnreportedOvertime ? "anomaly-time" : item.OverstayLevel == AttendanceReviewOverstayLevel.ExtendedStay ? "overstay-warning" : null;
+    private static string AttendanceStatus(MyAttendanceRowDto item) => item.IsEmploymentSuspended ? "留職停薪" : item.IsAttendanceExempted ? "天然災害出勤例外" : item.LeaveCoverageStatus == "Full" ? "全日請假" : !item.IsRequiredWorkday ? (item.CalendarClassification == "Holiday" ? "休假日" : "非工作日") : item.LeaveCoverageStatus == "Partial" ? "部分請假" : item.IsAnomaly ? "出勤異常" : "正常";
+    private static string MissingPunchText(MyAttendanceRowDto item) => (item.MissingClockIn, item.MissingClockOut) switch { (true, true) => "上下班缺卡", (true, false) => "上班缺卡", (false, true) => "下班缺卡", _ => "無" };
+    private static string OverstayText(MyAttendanceRowDto item) => item.OverstayLevel switch { AttendanceReviewOverstayLevel.ExtendedStay => $"延後下班 {item.OverstayMinutes} 分鐘", AttendanceReviewOverstayLevel.PotentialUnreportedOvertime => $"疑似未申報加班 {item.OverstayMinutes} 分鐘（僅表示需確認）", _ => "—" };
+    private static string LeaveText(MyAttendanceRowDto item) => item.IsEmploymentSuspended ? "留職停薪" : item.IsAttendanceExempted ? $"天然災害出勤例外 {item.AttendanceExceptionMinutes} 分鐘" : item.ApprovedLeaveMinutes > 0 ? $"{(item.LeaveCoverageStatus == "Full" ? "全日請假" : "部分請假")} {item.ApprovedLeaveMinutes} 分鐘；{string.Join("、", item.LeaveItems.Select(value => value.LeaveTypeName))}" : "—";
+    private static string OvertimeText(AttendanceReviewOvertimeRequestDto value) => value.State switch { AttendanceReviewOvertimeRequestState.DraftRequest => $"草稿 {value.RequestedMinutes} 分鐘", AttendanceReviewOvertimeRequestState.PendingRequest => $"待審核 {value.RequestedMinutes} 分鐘", AttendanceReviewOvertimeRequestState.RejectedRequest => "已駁回", AttendanceReviewOvertimeRequestState.WithdrawnRequest => "已撤回", AttendanceReviewOvertimeRequestState.ApprovedPendingRecognition => $"核准 {value.RequestedMinutes} 分鐘／待實際工時確認", AttendanceReviewOvertimeRequestState.RecognitionConfirmed => $"核准 {value.RequestedMinutes} 分鐘／實際認列 {value.RecognizedMinutes ?? 0} 分鐘", AttendanceReviewOvertimeRequestState.RecognitionNeedsReview or AttendanceReviewOvertimeRequestState.RecognitionReopened => $"核准 {value.RequestedMinutes} 分鐘／出勤資料已變更，待重新確認", AttendanceReviewOvertimeRequestState.ApprovedCovered or AttendanceReviewOvertimeRequestState.ApprovedPartiallyCovered => $"已核准 {value.RequestedMinutes} 分鐘", _ => "無申請" };
+    private static string AnomalyLabel(AttendanceReviewAnomalyType type) => type switch { AttendanceReviewAnomalyType.Late => "遲到", AttendanceReviewAnomalyType.EarlyLeave => "早退", AttendanceReviewAnomalyType.MissingClockIn => "上班缺卡", AttendanceReviewAnomalyType.MissingClockOut => "下班缺卡", AttendanceReviewAnomalyType.MissingBoth => "上下班缺卡", AttendanceReviewAnomalyType.ExtendedStay => "延後下班", AttendanceReviewAnomalyType.PotentialUnreportedOvertime => "疑似未申報加班", _ => "出勤異常" };
+    private static string Weekday(DateOnly date) => date.DayOfWeek switch { DayOfWeek.Monday => "星期一", DayOfWeek.Tuesday => "星期二", DayOfWeek.Wednesday => "星期三", DayOfWeek.Thursday => "星期四", DayOfWeek.Friday => "星期五", DayOfWeek.Saturday => "星期六", _ => "星期日" };
+}
